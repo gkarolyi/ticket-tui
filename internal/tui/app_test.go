@@ -177,6 +177,14 @@ func TestLayoutStacksPanesWhenNarrow(t *testing.T) {
 	}
 }
 
+func TestLayoutUsesSideBySidePanesAtHundredColumns(t *testing.T) {
+	layout := layoutFor(100, 28)
+
+	if layout.vertical {
+		t.Fatal("layout is vertical at 100 columns, want side-by-side")
+	}
+}
+
 func TestLayoutStacksPanesAtMediumWidth(t *testing.T) {
 	layout := layoutFor(90, 24)
 
@@ -432,6 +440,22 @@ func TestDownMovesThroughRenderedSectionOrder(t *testing.T) {
 	}
 }
 
+func TestViewStacksDashboardAtEightyColumns(t *testing.T) {
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
+	m.width = 80
+	m.height = 24
+	m.allTickets = []Ticket{{ID: "tic-ready", Title: "Ready ticket", Status: "open", Priority: 1}}
+	m.tickets = m.allTickets
+	m.detail.SetContent("Status   Priority\nopen     P1")
+
+	view := stripANSI(m.View().Content)
+	queueIndex := strings.Index(view, "Queue")
+	ticketIndex := strings.Index(view, "Ticket")
+	if queueIndex == -1 || ticketIndex == -1 || queueIndex > ticketIndex {
+		t.Fatalf("stacked layout missing queue-before-ticket order:\n%s", view)
+	}
+}
+
 func TestFooterShowsSectionPositionInsteadOfOpaqueModeCycle(t *testing.T) {
 	m := model{
 		width:      120,
@@ -447,6 +471,29 @@ func TestFooterShowsSectionPositionInsteadOfOpaqueModeCycle(t *testing.T) {
 		if !strings.Contains(footer, text) {
 			t.Fatalf("footer missing %q: %q", text, footer)
 		}
+	}
+}
+
+func TestDetailForKeepsMetadataAboveLongMarkdown(t *testing.T) {
+	runner := func(name string, args ...string) (string, error) {
+		return `---
+status: in_progress
+priority: 1
+assignee: gkarolyi
+---
+# Selected ticket
+
+alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu
+`, nil
+	}
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, runner)
+	m.width = 100
+	m.height = 28
+	m.resizeDetail()
+
+	detail := stripANSI(m.detailFor("tic-one"))
+	if strings.Index(detail, "Status") > strings.Index(detail, "alpha beta") {
+		t.Fatalf("metadata appears below markdown body:\n%s", detail)
 	}
 }
 
@@ -551,7 +598,7 @@ func TestLoadCmdLoadsDetailForFirstRenderedTicket(t *testing.T) {
 
 	msg := m.loadCmd()().(loadedMsg)
 
-	if !strings.Contains(msg.detail, "Id: tic-ready") {
+	if !strings.Contains(msg.detail, "Metadata") || !strings.Contains(msg.detail, "tic-ready") {
 		t.Fatalf("loaded detail does not match first rendered ready ticket:\n%s", msg.detail)
 	}
 }
@@ -575,7 +622,7 @@ func TestLoadCmdPreservesSelectedTicketDetailOnRefresh(t *testing.T) {
 
 	msg := m.loadCmd()().(loadedMsg)
 
-	if !strings.Contains(msg.detail, "Id: tic-work") {
+	if !strings.Contains(msg.detail, "Metadata") || !strings.Contains(msg.detail, "tic-work") {
 		t.Fatalf("loaded detail does not match selected ticket after refresh:\n%s", msg.detail)
 	}
 }

@@ -105,7 +105,7 @@ var (
 )
 
 const (
-	narrowLayoutWidth = 100
+	narrowLayoutWidth = 80
 	refreshInterval   = 5 * time.Second
 )
 
@@ -335,7 +335,9 @@ func (m model) View() tea.View {
 	header := titleStyle.Render(m.headerText())
 	layout := layoutFor(m.width, m.height)
 
-	list := lipgloss.NewStyle().Width(layout.listWidth).Height(layout.listHeight).Render(m.renderList(layout.listWidth, layout.listHeight))
+	listTitle := titleStyle.Render("Queue")
+	listContent := lipgloss.NewStyle().Width(layout.listWidth).Height(layout.listHeight).Render(m.renderList(layout.listWidth, layout.listHeight))
+	list := lipgloss.JoinVertical(lipgloss.Left, listTitle, listContent)
 	detailContent := m.detail.View()
 	if m.prompt != promptNone {
 		detailContent = m.renderPromptModal()
@@ -346,11 +348,12 @@ func (m model) View() tea.View {
 	} else if m.helpShown {
 		detailContent = renderHelpModal()
 	}
-	detailTitle := "Detail"
-	if id := selectedID(m); id != "" {
-		detailTitle = "Detail: " + id
-		if m.focus == focusPreview {
+	detailTitle := "Ticket"
+	if m.focus == focusPreview {
+		if id := selectedID(m); id != "" {
 			detailTitle = "Preview: " + id
+		} else {
+			detailTitle = "Preview"
 		}
 	}
 	detailTitleStyle := titleStyle
