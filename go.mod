@@ -1,4 +1,4 @@
-module github.com/wedow/ticket
+module github.com/gkarolyi/ticket-tui
 
 go 1.25.0
 

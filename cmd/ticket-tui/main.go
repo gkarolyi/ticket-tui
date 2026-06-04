@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/wedow/ticket/internal/tui"
+	"github.com/gkarolyi/ticket-tui/internal/tui"
 )
 
 const description = "tk-plugin: Interactive terminal UI"
