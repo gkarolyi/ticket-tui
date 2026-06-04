@@ -332,7 +332,7 @@ func (m model) View() tea.View {
 		return tea.NewView("Loading...")
 	}
 
-	header := titleStyle.Render("tk · ticket board") + " " + mutedStyle.Render("mode: "+ModeName(m.mode))
+	header := titleStyle.Render(m.headerText())
 	layout := layoutFor(m.width, m.height)
 
 	list := lipgloss.NewStyle().Width(layout.listWidth).Height(layout.listHeight).Render(m.renderList(layout.listWidth, layout.listHeight))
@@ -405,7 +405,7 @@ func layoutFor(width, height int) layoutSpec {
 }
 
 func footerFor(m model) string {
-	footerText := mainFooterFor(m)
+	footerText := m.mainFooterFor()
 	if m.err != "" {
 		footerText = m.err
 	} else if m.focus == focusPreview {
@@ -424,19 +424,34 @@ func footerFor(m model) string {
 	return truncateText(footerText, m.width)
 }
 
-func mainFooterFor(m model) string {
-	if m.width <= narrowLayoutWidth {
-		parts := make([]string, 0, 6)
-		if status := compactFooterStatus(m.status); status != "" {
-			parts = append(parts, status)
-		}
-		if section := m.currentSectionName(); section != "-" {
-			parts = append(parts, section)
-		}
-		parts = append(parts, "q quit", "? help", "j/k move", "tab section")
-		return strings.Join(parts, " | ")
+func (m model) mainFooterFor() string {
+	parts := []string{"j/k move", "enter inspect", "tab section", "n new", "d deps", "/ filter", "? help"}
+	if m.width > 110 {
+		parts = []string{"j/k move", "enter inspect", "tab section", "n new", "d deps", "/ filter", "ctrl+p cmds", "? help"}
 	}
-	return fmt.Sprintf("section %s | q quit  ? help  j/k move  tab next section  enter inspect  ctrl+p palette", m.currentSectionName())
+	return strings.Join(parts, "   ")
+}
+
+func (m model) headerText() string {
+	parts := []string{"tk · tickets"}
+	sections := m.visibleSections()
+	for _, name := range []string{"Ready", "In Progress", "Blocked", "Closed Recent"} {
+		count := sectionCount(sections, name)
+		if count == 0 {
+			continue
+		}
+		switch name {
+		case "Ready":
+			parts = append(parts, fmt.Sprintf("Ready %d", count))
+		case "In Progress":
+			parts = append(parts, fmt.Sprintf("Active %d", count))
+		case "Blocked":
+			parts = append(parts, fmt.Sprintf("Blocked %d", count))
+		case "Closed Recent":
+			parts = append(parts, fmt.Sprintf("Closed %d", count))
+		}
+	}
+	return strings.Join(parts, "   ")
 }
 
 func compactFooterStatus(status string) string {
@@ -773,6 +788,15 @@ func ticketMap(tickets []Ticket) map[string]Ticket {
 		byID[ticket.ID] = ticket
 	}
 	return byID
+}
+
+func sectionCount(sections []ticketSection, name string) int {
+	for _, section := range sections {
+		if section.name == name {
+			return len(section.tickets)
+		}
+	}
+	return 0
 }
 
 func (m model) orderedTickets() []Ticket {

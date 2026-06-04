@@ -204,6 +204,57 @@ func TestFooterOnlyShowsQuitAndHelpKeys(t *testing.T) {
 	}
 }
 
+func TestViewShowsDashboardHeaderCounts(t *testing.T) {
+	tickets := []Ticket{
+		{ID: "tic-ready", Title: "Ready ticket", Status: "open", Priority: 1},
+		{ID: "tic-work", Title: "Started ticket", Status: "in_progress", Priority: 1},
+		{ID: "tic-block", Title: "Blocked ticket", Status: "open", Priority: 2, Deps: []string{"tic-work"}},
+		{ID: "tic-done", Title: "Closed ticket", Status: "closed", Priority: 3},
+	}
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
+	m.width = 120
+	m.height = 30
+	m.allTickets = tickets
+	m.tickets = tickets
+	m.detail.SetContent("Selected detail")
+
+	view := stripANSI(m.View().Content)
+
+	for _, want := range []string{"tk · tickets", "Ready 1", "Active 1", "Blocked 1", "Closed 1"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "mode: active") {
+		t.Fatalf("view still shows legacy mode header:\n%s", view)
+	}
+}
+
+func TestMainFooterShowsPrimaryActionsInPriorityOrder(t *testing.T) {
+	tickets := []Ticket{{ID: "tic-ready", Status: "open", Priority: 1}}
+	footer := footerFor(model{width: 120, status: "4 tickets", allTickets: tickets, tickets: tickets})
+
+	for _, want := range []string{"j/k move", "enter inspect", "tab section", "n new", "d deps", "/ filter", "? help"} {
+		if !strings.Contains(footer, want) {
+			t.Fatalf("footer missing %q: %q", want, footer)
+		}
+	}
+}
+
+func TestNarrowFooterDropsLowerPriorityHintsBeforeCoreHints(t *testing.T) {
+	tickets := []Ticket{{ID: "tic-ready", Status: "open", Priority: 1}}
+	footer := footerFor(model{width: 80, status: "16 tickets", allTickets: tickets, tickets: tickets})
+
+	for _, want := range []string{"j/k move", "enter inspect", "tab section", "? help"} {
+		if !strings.Contains(footer, want) {
+			t.Fatalf("narrow footer missing %q: %q", want, footer)
+		}
+	}
+	if strings.Contains(footer, "ctrl+p") {
+		t.Fatalf("narrow footer kept low-priority hint: %q", footer)
+	}
+}
+
 func TestBoardListShowsProjectStatusSections(t *testing.T) {
 	tickets := []Ticket{
 		{ID: "tic-ready", Title: "Ready ticket", Status: "open", Priority: 1},
