@@ -702,6 +702,44 @@ func TestHelpKeyKeepsSelectedTicketVisible(t *testing.T) {
 	}
 }
 
+func TestHelpOverlayKeepsDashboardVisibleBehindModal(t *testing.T) {
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
+	m.width = 100
+	m.height = 28
+	m.tickets = []Ticket{{ID: "tic-one", Title: "Selected ticket", Status: "open", Priority: 1}}
+	m.allTickets = m.tickets
+	m.detail.SetContent("Selected detail")
+	m.resizeDetail()
+
+	updated, _ := m.Update(keyMsg("?"))
+	view := stripANSI(updated.(model).View().Content)
+
+	for _, want := range []string{"Help", "tic-one", "Selected ticket", "Selected detail"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("overlay view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestPaletteOverlayKeepsDashboardVisibleBehindModal(t *testing.T) {
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
+	m.width = 100
+	m.height = 28
+	m.tickets = []Ticket{{ID: "tic-one", Title: "Selected ticket", Status: "open", Priority: 1}}
+	m.allTickets = m.tickets
+	m.detail.SetContent("Selected detail")
+	m.resizeDetail()
+
+	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'p', Mod: tea.ModCtrl}))
+	view := stripANSI(updated.(model).View().Content)
+
+	for _, want := range []string{"Command Palette", "tic-one", "Selected ticket", "Selected detail"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("palette overlay missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestCommandPaletteFuzzyFiltersCommands(t *testing.T) {
 	commands := filterPaletteCommands("crt", paletteCommands())
 

@@ -339,15 +339,7 @@ func (m model) View() tea.View {
 	listContent := lipgloss.NewStyle().Width(layout.listWidth).Height(layout.listHeight).Render(m.renderList(layout.listWidth, layout.listHeight))
 	list := lipgloss.JoinVertical(lipgloss.Left, listTitle, listContent)
 	detailContent := m.detail.View()
-	if m.prompt != promptNone {
-		detailContent = m.renderPromptModal()
-	} else if m.depPicker.shown {
-		detailContent = m.renderDependencyPickerModal()
-	} else if m.palette.shown {
-		detailContent = m.renderPaletteModal()
-	} else if m.helpShown {
-		detailContent = renderHelpModal()
-	}
+	overlay := m.activeOverlay()
 	detailTitle := "Ticket"
 	if m.focus == focusPreview {
 		if id := selectedID(m); id != "" {
@@ -367,6 +359,9 @@ func (m model) View() tea.View {
 	body := lipgloss.JoinHorizontal(lipgloss.Top, list, gutter, detail)
 	if layout.vertical {
 		body = lipgloss.JoinVertical(lipgloss.Left, list, detail)
+	}
+	if overlay != "" {
+		body = lipgloss.JoinVertical(lipgloss.Left, body, lipgloss.PlaceHorizontal(m.width, lipgloss.Center, overlay))
 	}
 
 	footerText := footerFor(m)
@@ -462,6 +457,21 @@ func compactFooterStatus(status string) string {
 		return "list"
 	}
 	return status
+}
+
+func (m model) activeOverlay() string {
+	switch {
+	case m.prompt != promptNone:
+		return m.renderPromptModal()
+	case m.depPicker.shown:
+		return m.renderDependencyPickerModal()
+	case m.palette.shown:
+		return m.renderPaletteModal()
+	case m.helpShown:
+		return renderHelpModal()
+	default:
+		return ""
+	}
 }
 
 func renderHelpModal() string {
