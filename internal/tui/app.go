@@ -528,28 +528,34 @@ func (m model) previewModalDimensions() (int, int) {
 }
 
 func overlayOnScreen(screen string, overlay string, width int, height int, topRow int) string {
-	lines := strings.Split(strings.TrimRight(overlay, "\n"), "\n")
-	if len(lines) == 0 {
+	screenLines := strings.Split(screen, "\n")
+	overlayLines := strings.Split(strings.TrimRight(overlay, "\n"), "\n")
+	if len(screenLines) == 0 || len(overlayLines) == 0 {
 		return screen
 	}
 	overlayWidth := 0
-	for _, line := range lines {
-		if w := ansi.StringWidth(line); w > overlayWidth {
+	for _, line := range overlayLines {
+		if w := len([]rune(stripANSIText(line))); w > overlayWidth {
 			overlayWidth = w
 		}
 	}
-	startRow := topRow + max(0, (height-len(lines))/2)
-	startCol := 1 + max(0, (width-overlayWidth)/2)
-
-	var b strings.Builder
-	b.WriteString(screen)
-	b.WriteString(ansi.SaveCursorPosition)
-	for i, line := range lines {
-		b.WriteString(ansi.CursorPosition(startCol, startRow+i))
-		b.WriteString(line)
+	startRow := max(0, topRow-1+max(0, (height-len(overlayLines))/2))
+	startCol := max(0, (width-overlayWidth)/2)
+	for i, line := range overlayLines {
+		idx := startRow + i
+		if idx >= len(screenLines) {
+			break
+		}
+		prefix := ansi.Cut(screenLines[idx], 0, startCol)
+		suffixWidth := max(0, width-startCol-overlayWidth)
+		suffix := strings.Repeat(" ", suffixWidth)
+		padding := overlayWidth - len([]rune(stripANSIText(line)))
+		if padding > 0 {
+			line += strings.Repeat(" ", padding)
+		}
+		screenLines[idx] = prefix + line + suffix
 	}
-	b.WriteString(ansi.RestoreCursorPosition)
-	return b.String()
+	return strings.Join(screenLines, "\n")
 }
 
 func previewOverlaySize(lines []string) (int, int) {

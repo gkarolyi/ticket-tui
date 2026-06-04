@@ -505,7 +505,7 @@ func TestPreviewFooterPrioritizesEscapeOnNarrowScreens(t *testing.T) {
 	}
 }
 
-func TestPreviewModalViewUsesCursorOverlaySequences(t *testing.T) {
+func TestPreviewModalViewOverlaysOnRenderedDashboard(t *testing.T) {
 	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
 	m.width = 120
 	m.height = 30
@@ -516,9 +516,9 @@ func TestPreviewModalViewUsesCursorOverlaySequences(t *testing.T) {
 	m.detail.SetContent("Notes\n\nSelected detail")
 	m.resizeDetail()
 
-	view := m.View().Content
+	view := stripANSI(m.View().Content)
 
-	for _, want := range []string{"Queue", "Preview: tic-one", "\x1b[s", "\x1b[u"} {
+	for _, want := range []string{"Queue", "Preview: tic-one", "Selected detail"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("preview modal view missing %q:\n%q", want, view)
 		}
@@ -956,6 +956,19 @@ func TestCommandPaletteKeyShowsSearchableCommands(t *testing.T) {
 	}
 	if strings.Contains(view, "move selection") {
 		t.Fatalf("palette includes movement commands:\n%s", view)
+	}
+}
+
+func TestOverlayOnScreenPreservesUnderlyingANSI(t *testing.T) {
+	base := titleStyle.Render("Queue") + "\n" + mutedStyle.Render("Underlying detail")
+	overlay := selectedStyle.Render("Preview modal")
+
+	rendered := overlayOnScreen(base, overlay, 40, 2, 1)
+
+	for _, want := range []string{"Queue", "Preview modal", "\x1b["} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("overlay output missing %q:\n%q", want, rendered)
+		}
 	}
 }
 
