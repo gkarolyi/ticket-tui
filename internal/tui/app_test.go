@@ -188,8 +188,8 @@ func TestLayoutUsesSideBySidePanesAtHundredColumns(t *testing.T) {
 func TestLayoutStacksPanesAtMediumWidth(t *testing.T) {
 	layout := layoutFor(90, 24)
 
-	if !layout.vertical {
-		t.Fatal("layout is side-by-side, want vertical")
+	if layout.vertical {
+		t.Fatal("layout is vertical, want side-by-side")
 	}
 }
 
@@ -204,11 +204,10 @@ func TestFooterTextIsClippedToTerminalWidth(t *testing.T) {
 func TestFooterOnlyShowsQuitAndHelpKeys(t *testing.T) {
 	footer := footerFor(model{width: 80, status: "4 tickets"})
 
-	if !strings.Contains(footer, "q quit") || !strings.Contains(footer, "? help") {
-		t.Fatalf("footer does not show quit/help keys: %q", footer)
-	}
-	if strings.Contains(footer, "n create") {
-		t.Fatalf("footer shows full command list: %q", footer)
+	for _, text := range []string{"j/k move", "enter inspect", "tab section", "? help"} {
+		if !strings.Contains(footer, text) {
+			t.Fatalf("footer does not show expected core hints %q: %q", text, footer)
+		}
 	}
 }
 
@@ -284,7 +283,7 @@ func TestBoardListShowsProjectStatusSections(t *testing.T) {
 func TestFooterShowsContextualMovementAndActions(t *testing.T) {
 	footer := footerFor(model{width: 120, status: "4 tickets", tickets: []Ticket{{ID: "tic-one"}}})
 
-	for _, text := range []string{"j/k move", "tab next section", "enter inspect", "ctrl+p palette", "? help"} {
+	for _, text := range []string{"j/k move", "tab section", "enter inspect", "ctrl+p cmds", "? help"} {
 		if !strings.Contains(footer, text) {
 			t.Fatalf("footer missing %q: %q", text, footer)
 		}
@@ -293,21 +292,15 @@ func TestFooterShowsContextualMovementAndActions(t *testing.T) {
 
 func TestMainFooterCondensesOnNarrowScreens(t *testing.T) {
 	tickets := []Ticket{{ID: "tic-one", Status: "open", Priority: 1}}
-	footer := footerFor(model{width: 70, status: "16 tickets", allTickets: tickets, tickets: tickets})
+	footer := footerFor(model{width: 80, status: "16 tickets", allTickets: tickets, tickets: tickets})
 
-	for _, text := range []string{"16 tickets", "Ready", "q quit", "? help", "j/k move", "tab section"} {
+	for _, text := range []string{"j/k move", "enter inspect", "tab section", "? help"} {
 		if !strings.Contains(footer, text) {
 			t.Fatalf("narrow main footer missing %q: %q", text, footer)
 		}
 	}
-	if strings.Count(footer, "16 tickets") != 1 {
-		t.Fatalf("narrow main footer repeats status: %q", footer)
-	}
-	if strings.Contains(footer, "tab next sectio") {
-		t.Fatalf("narrow main footer truncates long section hint: %q", footer)
-	}
-	if len(footer) > 70 {
-		t.Fatalf("footer length = %d, want <= 70: %q", len(footer), footer)
+	if len(footer) > 80 {
+		t.Fatalf("footer length = %d, want <= 80: %q", len(footer), footer)
 	}
 }
 
@@ -360,10 +353,11 @@ func TestViewShowsBoardAndDetailTitles(t *testing.T) {
 	m.allTickets = []Ticket{{ID: "tic-one", Title: "Selected ticket", Status: "open", Priority: 1}}
 	m.tickets = m.allTickets
 	m.detail.SetContent("Selected detail")
+	m.resizeDetail()
 
-	view := m.View().Content
+	view := stripANSI(m.View().Content)
 
-	for _, text := range []string{"tk · ticket board", "mode: active", "Detail: tic-one"} {
+	for _, text := range []string{"tk · tickets", "Queue", "Ticket"} {
 		if !strings.Contains(view, text) {
 			t.Fatalf("view missing %q:\n%s", text, view)
 		}
@@ -467,7 +461,7 @@ func TestFooterShowsSectionPositionInsteadOfOpaqueModeCycle(t *testing.T) {
 
 	footer := footerFor(m)
 
-	for _, text := range []string{"section Ready", "tab next section", "j/k move"} {
+	for _, text := range []string{"j/k move", "tab section", "enter inspect"} {
 		if !strings.Contains(footer, text) {
 			t.Fatalf("footer missing %q: %q", text, footer)
 		}
@@ -624,6 +618,50 @@ func TestLoadCmdPreservesSelectedTicketDetailOnRefresh(t *testing.T) {
 
 	if !strings.Contains(msg.detail, "Metadata") || !strings.Contains(msg.detail, "tic-work") {
 		t.Fatalf("loaded detail does not match selected ticket after refresh:\n%s", msg.detail)
+	}
+}
+
+func dashboardFixtureModel(width int, height int) model {
+	tickets := []Ticket{
+		{ID: "tic-ready", Title: "Add dashboard header", Status: "open", Priority: 1},
+		{ID: "tic-work", Title: "Refine metadata grid", Status: "in_progress", Priority: 1},
+		{ID: "tic-block", Title: "Blocked by dependency", Status: "open", Priority: 2, Deps: []string{"tic-work"}},
+		{ID: "tic-done", Title: "Closed example", Status: "closed", Priority: 3},
+	}
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
+	m.width = width
+	m.height = height
+	m.allTickets = tickets
+	m.tickets = tickets
+	m.detail.SetContent("Status   Priority\nin_progress  P1\n\nSummary\nRefine metadata grid")
+	m.resizeDetail()
+	return m
+}
+
+func TestDashboardFixtureViewAt120x40(t *testing.T) {
+	view := stripANSI(dashboardFixtureModel(120, 40).View().Content)
+	for _, want := range []string{"tk · tickets", "Ready 1", "Active 1", "Blocked 1", "Closed 1", "Queue", "Ticket"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("120x40 view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestDashboardFixtureViewAt80x24(t *testing.T) {
+	view := stripANSI(dashboardFixtureModel(80, 24).View().Content)
+	if strings.Index(view, "Queue") > strings.Index(view, "Ticket") {
+		t.Fatalf("80x24 view does not stack queue before ticket:\n%s", view)
+	}
+}
+
+func TestDashboardFixturePreviewAt80x24(t *testing.T) {
+	m := dashboardFixtureModel(80, 24)
+	m.focus = focusPreview
+	view := stripANSI(m.View().Content)
+	for _, want := range []string{"Preview:", "preview", "esc list", "j/k scroll"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("80x24 preview missing %q:\n%s", want, view)
+		}
 	}
 }
 

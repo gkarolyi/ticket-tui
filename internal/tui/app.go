@@ -361,7 +361,7 @@ func (m model) View() tea.View {
 		body = lipgloss.JoinVertical(lipgloss.Left, list, detail)
 	}
 	if overlay != "" {
-		body = lipgloss.JoinVertical(lipgloss.Left, body, lipgloss.PlaceHorizontal(m.width, lipgloss.Center, overlay))
+		body = overlayBody(body, overlay, m.width, layout.bodyHeight)
 	}
 
 	footerText := footerFor(m)
@@ -472,6 +472,23 @@ func (m model) activeOverlay() string {
 	default:
 		return ""
 	}
+}
+
+func overlayBody(base string, overlay string, width int, height int) string {
+	base = lipgloss.NewStyle().Width(width).Height(height).Render(base)
+	baseLines := strings.Split(base, "\n")
+	overlayLines := strings.Split(overlay, "\n")
+	if len(baseLines) == 0 || len(overlayLines) == 0 {
+		return base
+	}
+	start := max(0, (len(baseLines)-len(overlayLines))/2)
+	for i, line := range overlayLines {
+		if start+i >= len(baseLines) {
+			break
+		}
+		baseLines[start+i] = lipgloss.PlaceHorizontal(width, lipgloss.Center, line)
+	}
+	return strings.Join(baseLines, "\n")
 }
 
 func renderHelpModal() string {
