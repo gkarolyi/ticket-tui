@@ -11,20 +11,28 @@ import (
 
 var relatedTicketLinePattern = regexp.MustCompile(`^- ([^ ]+) \[([^]]+)\] (.+)$`)
 
+type metadataField struct {
+	label string
+	value string
+}
+
 func RenderTicketDetail(raw string, ticketsDir string, widths ...int) string {
 	width := 0
 	if len(widths) > 0 {
 		width = widths[0]
 	}
 	frontmatter, body := splitFrontmatter(raw)
-	sections := make([]string, 0, 2)
-	if len(frontmatter) > 0 {
-		sections = append(sections, renderMetadata(frontmatter))
+	fields := metadataFields(frontmatter)
+	sections := make([]string, 0, 3)
+	if metadata := renderMetadata(fields, width); metadata != "" {
+		sections = append(sections, metadata)
 	}
 	if graph := renderRelationshipGraph(frontmatter, body); graph != "" {
 		sections = append(sections, graph)
 	}
-	sections = append(sections, renderMarkdownPreview(body, ticketsDir, width))
+	if preview := renderMarkdownPreview(body, ticketsDir, width); preview != "" {
+		sections = append(sections, preview)
+	}
 	return strings.TrimSpace(strings.Join(sections, "\n\n"))
 }
 
@@ -42,18 +50,96 @@ func splitFrontmatter(raw string) ([]string, string) {
 	return nil, raw
 }
 
-func renderMetadata(lines []string) string {
-	output := []string{titleStyle.Render("Metadata")}
+func metadataFields(lines []string) []metadataField {
+	fields := make([]metadataField, 0, len(lines))
 	for _, line := range lines {
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
 		}
-		key = strings.TrimSpace(key)
-		value = formatMetadataValue(strings.TrimSpace(value))
-		output = append(output, fmt.Sprintf("%s: %s", titleCase(key), value))
+		fields = append(fields, metadataField{
+			label: titleCase(strings.TrimSpace(key)),
+			value: formatMetadataValue(strings.TrimSpace(value)),
+		})
 	}
-	return strings.Join(output, "\n")
+	return fields
+}
+
+func renderMetadata(fields []metadataField, width int) string {
+	if len(fields) == 0 {
+		return ""
+	}
+
+	lines := []string{titleStyle.Render("Metadata")}
+	for _, group := range metadataGroups(fields, width) {
+		headers := make([]string, 0, len(group))
+		values := make([]string, 0, len(group))
+		for _, field := range group {
+			colWidth := metadataColumnWidth(field)
+			headers = append(headers, padRight(field.label, colWidth))
+			values = append(values, padRight(truncateCell(field.value, colWidth), colWidth))
+		}
+		lines = append(lines, strings.TrimRight(strings.Join(headers, "  "), " "))
+		lines = append(lines, strings.TrimRight(strings.Join(values, "  "), " "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func metadataGroups(fields []metadataField, width int) [][]metadataField {
+	if width <= 0 {
+		return [][]metadataField{fields}
+	}
+
+	groups := make([][]metadataField, 0, len(fields))
+	current := make([]metadataField, 0, len(fields))
+	currentWidth := 0
+	for _, field := range fields {
+		colWidth := metadataColumnWidth(field)
+		required := colWidth
+		if len(current) > 0 {
+			required += 2
+		}
+		if len(current) > 0 && currentWidth+required > width {
+			groups = append(groups, current)
+			current = []metadataField{field}
+			currentWidth = colWidth
+			continue
+		}
+		current = append(current, field)
+		currentWidth += required
+	}
+	if len(current) > 0 {
+		groups = append(groups, current)
+	}
+	return groups
+}
+
+func metadataColumnWidth(field metadataField) int {
+	width := max(len(field.label), len(field.value))
+	if width < 8 {
+		return 8
+	}
+	if width > 18 {
+		return 18
+	}
+	return width
+}
+
+func truncateCell(value string, width int) string {
+	if width <= 0 || len(value) <= width {
+		return value
+	}
+	if width == 1 {
+		return value[:1]
+	}
+	return value[:width-1] + "…"
+}
+
+func padRight(value string, width int) string {
+	if len(value) >= width {
+		return value
+	}
+	return value + strings.Repeat(" ", width-len(value))
 }
 
 func formatMetadataValue(value string) string {

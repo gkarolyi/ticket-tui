@@ -30,14 +30,60 @@ tags: [ui, backend]
 	if !strings.Contains(rendered, "Metadata") {
 		t.Fatalf("rendered detail missing Metadata section:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "Status: open") {
-		t.Fatalf("rendered detail missing formatted status:\n%s", rendered)
-	}
-	if !strings.Contains(rendered, "Tags: ui, backend") {
-		t.Fatalf("rendered detail missing formatted tags:\n%s", rendered)
+	for _, want := range []string{"Status", "Priority", "Tags", "open", "ui, backend"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered detail missing metadata value %q:\n%s", want, rendered)
+		}
 	}
 	if !strings.Contains(rendered, "Build UI") {
 		t.Fatalf("rendered detail missing markdown heading:\n%s", rendered)
+	}
+}
+
+func TestRenderTicketDetailFormatsMetadataAsHorizontalGrid(t *testing.T) {
+	raw := `---
+status: open
+priority: 2
+assignee: gkarolyi
+tags: [ui, backend]
+created: 2026-05-28
+---
+# Build UI
+`
+
+	rendered := stripDetailANSI(RenderTicketDetail(raw, "/tmp/.tickets", 80))
+
+	for _, want := range []string{"Status", "Priority", "Assignee", "Tags", "Created"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("missing metadata header %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "Status: open") {
+		t.Fatalf("detail still uses row-style metadata:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "open") || !strings.Contains(rendered, "gkarolyi") {
+		t.Fatalf("detail missing metadata values:\n%s", rendered)
+	}
+}
+
+func TestRenderTicketDetailWrapsMetadataIntoCompactGroupsAtNarrowWidth(t *testing.T) {
+	raw := `---
+status: in_progress
+priority: 1
+assignee: gkarolyi
+tags: [tui, ux]
+created: 2026-05-28
+---
+# Build UI
+`
+
+	rendered := stripDetailANSI(RenderTicketDetail(raw, "/tmp/.tickets", 36))
+
+	if !strings.Contains(rendered, "Status") || !strings.Contains(rendered, "Priority") {
+		t.Fatalf("narrow detail missing metadata groups:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "Status: in_progress") {
+		t.Fatalf("narrow detail fell back to old row layout:\n%s", rendered)
 	}
 }
 
