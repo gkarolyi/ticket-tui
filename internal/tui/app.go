@@ -777,24 +777,34 @@ func (m model) renderList(width, height int) string {
 		return mutedStyle.Render("No tickets. Run 'tk create' to add one.")
 	}
 
-	lines := make([]string, 0, height)
+	lines, selectedLine := m.renderListLines(width)
+	if len(lines) <= height {
+		return strings.Join(lines, "\n")
+	}
+
+	start := 0
+	if selectedLine >= 0 && selectedLine >= height {
+		start = selectedLine - height + 1
+	}
+	if start > len(lines)-height {
+		start = len(lines) - height
+	}
+	return strings.Join(lines[start:start+height], "\n")
+}
+
+func (m model) renderListLines(width int) ([]string, int) {
+	lines := make([]string, 0, len(m.tickets)+len(m.visibleSections()))
+	selectedLine := -1
 	for _, section := range m.visibleSections() {
 		lines = append(lines, titleStyle.Render(truncateText(fmt.Sprintf("─ %s (%d)", section.name, len(section.tickets)), width)))
-		if len(lines) >= height {
-			break
-		}
 		for _, ticket := range section.tickets {
-			line := m.renderTicketRow(ticket, width)
-			lines = append(lines, line)
-			if len(lines) >= height {
-				break
+			if selectedID(m) == ticket.ID {
+				selectedLine = len(lines)
 			}
-		}
-		if len(lines) >= height {
-			break
+			lines = append(lines, m.renderTicketRow(ticket, width))
 		}
 	}
-	return strings.Join(lines, "\n")
+	return lines, selectedLine
 }
 
 type ticketSection struct {

@@ -280,6 +280,29 @@ func TestBoardListShowsProjectStatusSections(t *testing.T) {
 	}
 }
 
+func TestRenderListScrollsToKeepSelectedTicketVisible(t *testing.T) {
+	tickets := []Ticket{
+		{ID: "tic-01", Title: "Ready 1", Status: "open", Priority: 1},
+		{ID: "tic-02", Title: "Ready 2", Status: "open", Priority: 1},
+		{ID: "tic-03", Title: "Ready 3", Status: "open", Priority: 1},
+		{ID: "tic-04", Title: "Ready 4", Status: "open", Priority: 1},
+		{ID: "tic-05", Title: "Ready 5", Status: "open", Priority: 1},
+		{ID: "tic-06", Title: "Ready 6", Status: "open", Priority: 1},
+		{ID: "tic-07", Title: "Ready 7", Status: "open", Priority: 1},
+		{ID: "tic-08", Title: "Ready 8", Status: "open", Priority: 1},
+	}
+	m := model{allTickets: tickets, tickets: tickets, selected: 7}
+
+	view := stripANSI(m.renderList(44, 5))
+
+	if !strings.Contains(view, "tic-08") {
+		t.Fatalf("selected ticket is not visible in scrolled list:\n%s", view)
+	}
+	if strings.Contains(view, "tic-01") {
+		t.Fatalf("list did not scroll away earliest rows:\n%s", view)
+	}
+}
+
 func TestFooterShowsContextualMovementAndActions(t *testing.T) {
 	footer := footerFor(model{width: 120, status: "4 tickets", tickets: []Ticket{{ID: "tic-one"}}})
 
