@@ -22,8 +22,12 @@ func RenderTicketDetail(raw string, ticketsDir string, widths ...int) string {
 		width = widths[0]
 	}
 	frontmatter, body := splitFrontmatter(raw)
+	title, body := extractTitle(body)
 	fields := metadataFields(frontmatter)
-	sections := make([]string, 0, 3)
+	sections := make([]string, 0, 4)
+	if title != "" {
+		sections = append(sections, titleStyle.Render(title))
+	}
 	if metadata := renderMetadata(fields, width); metadata != "" {
 		sections = append(sections, metadata)
 	}
@@ -50,17 +54,46 @@ func splitFrontmatter(raw string) ([]string, string) {
 	return nil, raw
 }
 
+func extractTitle(body string) (string, string) {
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "# ") {
+			title := strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))
+			remaining := append([]string{}, lines[:i]...)
+			remaining = append(remaining, lines[i+1:]...)
+			return title, strings.TrimSpace(strings.Join(remaining, "\n"))
+		}
+	}
+	return "", body
+}
+
 func metadataFields(lines []string) []metadataField {
-	fields := make([]metadataField, 0, len(lines))
+	values := make(map[string]string, len(lines))
 	for _, line := range lines {
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
 		}
-		fields = append(fields, metadataField{
-			label: titleCase(strings.TrimSpace(key)),
-			value: formatMetadataValue(strings.TrimSpace(value)),
-		})
+		values[strings.TrimSpace(key)] = formatMetadataValue(strings.TrimSpace(value))
+	}
+	ordered := []struct {
+		key   string
+		label string
+	}{
+		{key: "status", label: "Status"},
+		{key: "priority", label: "Priority"},
+		{key: "assignee", label: "Assignee"},
+		{key: "tags", label: "Tags"},
+		{key: "created", label: "Created"},
+	}
+	fields := make([]metadataField, 0, len(ordered))
+	for _, item := range ordered {
+		value, ok := values[item.key]
+		if !ok {
+			continue
+		}
+		fields = append(fields, metadataField{label: item.label, value: value})
 	}
 	return fields
 }
@@ -70,7 +103,7 @@ func renderMetadata(fields []metadataField, width int) string {
 		return ""
 	}
 
-	lines := []string{titleStyle.Render("Metadata")}
+	lines := make([]string, 0, len(fields)*2)
 	for _, group := range metadataGroups(fields, width) {
 		headers := make([]string, 0, len(group))
 		values := make([]string, 0, len(group))
@@ -171,8 +204,6 @@ func renderMarkdownPreview(raw string, ticketsDir string, width int) string {
 		switch {
 		case strings.HasPrefix(trimmed, "## "):
 			lines[i] = titleStyle.Render(strings.TrimPrefix(trimmed, "## "))
-		case strings.HasPrefix(trimmed, "# "):
-			lines[i] = titleStyle.Render(strings.TrimPrefix(trimmed, "# "))
 		case relatedTicketLinePattern.MatchString(trimmed):
 			lines[i] = renderRelatedTicketLine(trimmed, ticketsDir)
 		case width > 0:
@@ -220,13 +251,13 @@ func wrapLine(line string, width int) string {
 }
 
 func renderRelationshipGraph(frontmatter []string, body string) string {
-	lines := []string{titleStyle.Render("Relationships")}
+	lines := make([]string, 0, 8)
 	for _, line := range frontmatter {
 		key, value, ok := strings.Cut(line, ":")
 		if ok && strings.TrimSpace(key) == "parent" {
 			parent := strings.TrimSpace(value)
 			if parent != "" {
-				lines = append(lines, "parent <- "+parent)
+				lines = append(lines, "Parent      "+parent)
 			}
 		}
 	}
@@ -250,19 +281,16 @@ func renderRelationshipGraph(frontmatter []string, body string) string {
 		detail := strings.TrimSpace(id + " " + status + " " + matches[3])
 		switch section {
 		case "Blockers":
-			lines = append(lines, "blocked by <- "+detail)
+			lines = append(lines, "Blocked by  "+detail)
 		case "Blocking":
-			lines = append(lines, "blocks -> "+detail)
+			lines = append(lines, "Blocking    "+detail)
 		case "Children":
-			lines = append(lines, "child -> "+detail)
+			lines = append(lines, "Children    "+detail)
 		case "Linked":
-			lines = append(lines, "linked -- "+detail)
+			lines = append(lines, "Linked      "+detail)
 		}
 	}
 
-	if len(lines) == 1 {
-		return ""
-	}
 	return strings.Join(lines, "\n")
 }
 

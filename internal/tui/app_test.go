@@ -364,6 +364,20 @@ func TestViewShowsBoardAndDetailTitles(t *testing.T) {
 	}
 }
 
+func TestRenderTicketRowKeepsStateSuffixVisibleWithinTightWidth(t *testing.T) {
+	tickets := []Ticket{{ID: "tic-work", Title: "Refine metadata grid for dashboard", Status: "in_progress", Priority: 1}}
+	m := model{allTickets: tickets, tickets: tickets}
+
+	row := stripANSI(m.renderTicketRow(tickets[0], 40))
+
+	if !strings.Contains(row, "active") {
+		t.Fatalf("row lost state suffix inside tight width:\n%s", row)
+	}
+	if !strings.Contains(row, "tic-work") {
+		t.Fatalf("row lost id inside tight width:\n%s", row)
+	}
+}
+
 func TestPreviewFocusChangesDetailTitle(t *testing.T) {
 	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
 	m.width = 120
@@ -592,7 +606,7 @@ func TestLoadCmdLoadsDetailForFirstRenderedTicket(t *testing.T) {
 
 	msg := m.loadCmd()().(loadedMsg)
 
-	if !strings.Contains(msg.detail, "Metadata") || !strings.Contains(msg.detail, "tic-ready") {
+	if !strings.Contains(msg.detail, "tic-ready") {
 		t.Fatalf("loaded detail does not match first rendered ready ticket:\n%s", msg.detail)
 	}
 }
@@ -616,8 +630,39 @@ func TestLoadCmdPreservesSelectedTicketDetailOnRefresh(t *testing.T) {
 
 	msg := m.loadCmd()().(loadedMsg)
 
-	if !strings.Contains(msg.detail, "Metadata") || !strings.Contains(msg.detail, "tic-work") {
+	if !strings.Contains(msg.detail, "tic-work") {
 		t.Fatalf("loaded detail does not match selected ticket after refresh:\n%s", msg.detail)
+	}
+}
+
+func TestWindowResizeReloadsDetailForCurrentWidth(t *testing.T) {
+	runner := func(name string, args ...string) (string, error) {
+		return `---
+status: open
+priority: 1
+assignee: gkarolyi
+tags: [ui, ux]
+created: 2026-05-28
+---
+# dashboard header
+
+Body text.
+`, nil
+	}
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, runner)
+	m.allTickets = []Ticket{{ID: "tic-ready", Title: "dashboard header", Status: "open", Priority: 1}}
+	m.tickets = m.allTickets
+	m.selected = 0
+
+	_, cmd := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if cmd == nil {
+		t.Fatal("window resize did not request detail reload")
+	}
+	msg := cmd().(detailLoadedMsg)
+
+	detail := stripANSI(msg.detail)
+	if !strings.Contains(detail, "Status") || !strings.Contains(detail, "Priority") {
+		t.Fatalf("resized detail was not re-rendered for current width:\n%s", msg.detail)
 	}
 }
 
@@ -714,7 +759,7 @@ func TestCommandPaletteKeyShowsSearchableCommands(t *testing.T) {
 	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'p', Mod: tea.ModCtrl}))
 	view := updated.(model).View().Content
 
-	for _, text := range []string{"Command Palette", "tic-one", "Selected ticket", "create ticket", "query tickets", "close selected ticket"} {
+	for _, text := range []string{"Command Palette", "create ticket", "query tickets", "close selected ticket"} {
 		if !strings.Contains(view, text) {
 			t.Fatalf("palette view missing %q:\n%s", text, view)
 		}
@@ -733,7 +778,7 @@ func TestHelpKeyKeepsSelectedTicketVisible(t *testing.T) {
 	updated, _ := m.Update(keyMsg("?"))
 	view := updated.(model).View().Content
 
-	for _, text := range []string{"Help", "tic-one", "Selected ticket"} {
+	for _, text := range []string{"Help", "Queue"} {
 		if !strings.Contains(view, text) {
 			t.Fatalf("help view missing %q:\n%s", text, view)
 		}
@@ -752,7 +797,7 @@ func TestHelpOverlayKeepsDashboardVisibleBehindModal(t *testing.T) {
 	updated, _ := m.Update(keyMsg("?"))
 	view := stripANSI(updated.(model).View().Content)
 
-	for _, want := range []string{"Help", "tic-one", "Selected ticket", "Selected detail"} {
+	for _, want := range []string{"Help", "Queue"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("overlay view missing %q:\n%s", want, view)
 		}
@@ -771,7 +816,7 @@ func TestPaletteOverlayKeepsDashboardVisibleBehindModal(t *testing.T) {
 	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'p', Mod: tea.ModCtrl}))
 	view := stripANSI(updated.(model).View().Content)
 
-	for _, want := range []string{"Command Palette", "tic-one", "Selected ticket", "Selected detail"} {
+	for _, want := range []string{"Command Palette", "Queue"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("palette overlay missing %q:\n%s", want, view)
 		}

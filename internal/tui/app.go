@@ -86,6 +86,10 @@ type loadedMsg struct {
 	detail  string
 }
 
+type detailLoadedMsg struct {
+	detail string
+}
+
 type statusMsg struct {
 	text string
 }
@@ -194,6 +198,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.resizeDetail()
+		if selectedID(m) != "" && m.prompt == promptNone && !m.queryShown && !m.helpShown && !m.palette.shown && !m.depPicker.shown {
+			return m, m.loadDetailCmd()
+		}
 		return m, nil
 	case loadedMsg:
 		m.allTickets = msg.tickets
@@ -209,6 +216,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detail.SetContent(msg.detail)
 		m.status = fmt.Sprintf("%d tickets", len(m.tickets))
 		m.err = ""
+		if m.width > 0 && len(m.tickets) > 0 {
+			return m, m.loadDetailCmd()
+		}
+		return m, nil
+	case detailLoadedMsg:
+		m.detail.SetContent(msg.detail)
 		return m, nil
 	case statusMsg:
 		m.status = msg.text
@@ -890,7 +903,12 @@ func (m model) renderTicketRow(ticket Ticket, width int) string {
 	if selectedID(m) == ticket.ID {
 		marker = ">"
 	}
-	line := fmt.Sprintf("%s P%d  %s  %s  %s", marker, ticket.Priority, ticket.Title, ticket.ID, m.ticketStateLabel(ticket))
+	state := m.ticketStateLabel(ticket)
+	prefix := fmt.Sprintf("%s P%d  ", marker, ticket.Priority)
+	suffix := fmt.Sprintf("  %s  %s", ticket.ID, state)
+	titleWidth := max(1, width-len(prefix)-len(suffix))
+	title := truncateText(ticket.Title, titleWidth)
+	line := prefix + title + suffix
 	line = truncateText(line, width)
 	if selectedID(m) == ticket.ID {
 		return selectedStyle.Render(line)
@@ -967,6 +985,15 @@ func (m model) renderPromptModal() string {
 	return ""
 }
 
+func (m model) loadDetailCmd() tea.Cmd {
+	return func() tea.Msg {
+		if len(m.tickets) == 0 || m.selected >= len(m.tickets) {
+			return detailLoadedMsg{detail: "No tickets. Run 'tk create' to add one."}
+		}
+		return detailLoadedMsg{detail: m.detailFor(m.tickets[m.selected].ID)}
+	}
+}
+
 func newTextInput(placeholder string) textinput.Model {
 	input := textinput.New()
 	input.Placeholder = placeholder
@@ -1026,15 +1053,6 @@ func refreshTickCmd() tea.Cmd {
 	return tea.Tick(refreshInterval, func(time.Time) tea.Msg {
 		return refreshTickMsg{}
 	})
-}
-
-func (m model) loadDetailCmd() tea.Cmd {
-	return func() tea.Msg {
-		if len(m.tickets) == 0 || m.selected >= len(m.tickets) {
-			return loadedMsg{tickets: m.allTickets, detail: "No tickets. Run 'tk create' to add one."}
-		}
-		return loadedMsg{tickets: m.allTickets, detail: m.detailFor(m.tickets[m.selected].ID)}
-	}
 }
 
 func (m model) detailFor(id string) string {

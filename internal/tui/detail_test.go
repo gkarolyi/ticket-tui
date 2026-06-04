@@ -27,16 +27,10 @@ tags: [ui, backend]
 	if strings.Contains(rendered, "---") {
 		t.Fatalf("rendered detail still contains raw frontmatter separators:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "Metadata") {
-		t.Fatalf("rendered detail missing Metadata section:\n%s", rendered)
-	}
-	for _, want := range []string{"Status", "Priority", "Tags", "open", "ui, backend"} {
+	for _, want := range []string{"Status", "Priority", "Tags", "open", "ui, backend", "Build UI"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered detail missing metadata value %q:\n%s", want, rendered)
 		}
-	}
-	if !strings.Contains(rendered, "Build UI") {
-		t.Fatalf("rendered detail missing markdown heading:\n%s", rendered)
 	}
 }
 
@@ -84,6 +78,52 @@ created: 2026-05-28
 	}
 	if strings.Contains(rendered, "Status: in_progress") {
 		t.Fatalf("narrow detail fell back to old row layout:\n%s", rendered)
+	}
+}
+
+func TestRenderTicketDetailShowsTitleBeforeMetadata(t *testing.T) {
+	raw := `---
+id: abc-1234
+status: open
+deps: []
+links: []
+priority: 2
+assignee: gkarolyi
+tags: [ui, backend]
+created: 2026-05-28
+type: feature
+---
+# Build UI
+
+Summary paragraph.
+`
+
+	rendered := stripDetailANSI(RenderTicketDetail(raw, "/tmp/.tickets", 80))
+
+	if strings.Index(rendered, "Build UI") > strings.Index(rendered, "Status") {
+		t.Fatalf("ticket title appears after metadata:\n%s", rendered)
+	}
+}
+
+func TestRenderTicketDetailKeepsMetadataGridCompact(t *testing.T) {
+	raw := `---
+id: abc-1234
+status: open
+deps: []
+links: []
+priority: 2
+assignee: gkarolyi
+tags: [ui, backend]
+created: 2026-05-28
+type: feature
+---
+# Build UI
+`
+
+	rendered := stripDetailANSI(RenderTicketDetail(raw, "/tmp/.tickets", 80))
+
+	if strings.Contains(rendered, "Id") || strings.Contains(rendered, "Deps") || strings.Contains(rendered, "Links") || strings.Contains(rendered, "Type") {
+		t.Fatalf("metadata grid includes low-value fields that should not be in the compact summary:\n%s", rendered)
 	}
 }
 
@@ -135,12 +175,11 @@ links: []
 	rendered := RenderTicketDetail(raw, "/tmp/.tickets")
 
 	for _, want := range []string{
-		"Relationships",
-		"parent <- parent-0001",
-		"blocked by <- dep-0001 [open] Dependency title",
-		"blocks -> blocked-0001 [open] Blocked title",
-		"child -> grand-0001 [open] Grandchild title",
-		"linked -- link-0001 [open] Related title",
+		"Parent      parent-0001",
+		"Blocked by  dep-0001 [open] Dependency title",
+		"Blocking    blocked-0001 [open] Blocked title",
+		"Children    grand-0001 [open] Grandchild title",
+		"Linked      link-0001 [open] Related title",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered detail missing %q:\n%s", want, rendered)
