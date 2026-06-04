@@ -29,24 +29,25 @@ type commandSpecValue struct {
 }
 
 type model struct {
-	config     Config
-	runner     commandRunner
-	width      int
-	height     int
-	focus      focusArea
-	allTickets []Ticket
-	tickets    []Ticket
-	selected   int
-	mode       Mode
-	detail     viewport.Model
-	status     string
-	err        string
-	prompt     promptKind
-	input      textinput.Model
-	queryShown bool
-	helpShown  bool
-	palette    paletteState
-	depPicker  dependencyPickerState
+	config       Config
+	runner       commandRunner
+	width        int
+	height       int
+	focus        focusArea
+	allTickets   []Ticket
+	tickets      []Ticket
+	selected     int
+	mode         Mode
+	detail       viewport.Model
+	detailHeader string
+	status       string
+	err          string
+	prompt       promptKind
+	input        textinput.Model
+	queryShown   bool
+	helpShown    bool
+	palette      paletteState
+	depPicker    dependencyPickerState
 }
 
 type paletteState struct {
@@ -83,11 +84,11 @@ const (
 
 type loadedMsg struct {
 	tickets []Ticket
-	detail  string
+	detail  detailParts
 }
 
 type detailLoadedMsg struct {
-	detail string
+	detail detailParts
 }
 
 type statusMsg struct {
@@ -213,7 +214,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.selected < 0 {
 			m.selected = 0
 		}
-		m.detail.SetContent(msg.detail)
+		m.applyDetail(msg.detail)
 		m.status = fmt.Sprintf("%d tickets", len(m.tickets))
 		m.err = ""
 		if m.width > 0 && len(m.tickets) > 0 {
@@ -221,7 +222,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case detailLoadedMsg:
-		m.detail.SetContent(msg.detail)
+		m.applyDetail(msg.detail)
 		return m, nil
 	case statusMsg:
 		m.status = msg.text
@@ -231,6 +232,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err.Error()
 		return m, nil
 	case queryMsg:
+		m.detailHeader = ""
+		m.resizeDetail()
 		m.detail.SetContent(msg.output)
 		m.status = "Query: " + msg.filter
 		m.err = ""
@@ -365,16 +368,20 @@ func (m model) View() tea.View {
 	if m.focus == focusPreview {
 		detailTitleStyle = selectedStyle
 	}
-	detail := lipgloss.NewStyle().Width(layout.detailWidth).Height(layout.detailHeight).Render(
-		lipgloss.JoinVertical(lipgloss.Left, detailTitleStyle.Render(detailTitle), detailContent),
-	)
+	detailSections := []string{detailTitleStyle.Render(detailTitle)}
+	if m.detailHeader != "" {
+		detailSections = append(detailSections, m.detailHeader)
+	}
+	detailSections = append(detailSections, detailContent)
+	detailInner := lipgloss.JoinVertical(lipgloss.Left, detailSections...)
+	if overlay != "" {
+		detailInner = overlayBody(detailInner, overlay, layout.detailWidth, layout.detailHeight)
+	}
+	detail := lipgloss.NewStyle().Width(layout.detailWidth).Height(layout.detailHeight).Render(detailInner)
 	gutter := strings.Repeat(" ", layout.gutterWidth)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, list, gutter, detail)
 	if layout.vertical {
 		body = lipgloss.JoinVertical(lipgloss.Left, list, detail)
-	}
-	if overlay != "" {
-		body = overlayBody(body, overlay, m.width, layout.bodyHeight)
 	}
 
 	footerText := footerFor(m)
@@ -904,11 +911,13 @@ func (m model) renderTicketRow(ticket Ticket, width int) string {
 		marker = ">"
 	}
 	state := m.ticketStateLabel(ticket)
+	idCol := padListCell(ticket.ID, 8)
+	stateCol := padListCell(state, 9)
 	prefix := fmt.Sprintf("%s P%d  ", marker, ticket.Priority)
-	suffix := fmt.Sprintf("  %s  %s", ticket.ID, state)
+	suffix := "  " + idCol + "  " + stateCol
 	titleWidth := max(1, width-len(prefix)-len(suffix))
 	title := truncateText(ticket.Title, titleWidth)
-	line := prefix + title + suffix
+	line := prefix + padListCell(title, titleWidth) + suffix
 	line = truncateText(line, width)
 	if selectedID(m) == ticket.ID {
 		return selectedStyle.Render(line)
@@ -917,6 +926,13 @@ func (m model) renderTicketRow(ticket Ticket, width int) string {
 		return mutedStyle.Render(line)
 	}
 	return line
+}
+
+func padListCell(value string, width int) string {
+	if len(value) >= width {
+		return value
+	}
+	return value + strings.Repeat(" ", width-len(value))
 }
 
 func (m model) ticketStateLabel(ticket Ticket) string {
@@ -988,7 +1004,7 @@ func (m model) renderPromptModal() string {
 func (m model) loadDetailCmd() tea.Cmd {
 	return func() tea.Msg {
 		if len(m.tickets) == 0 || m.selected >= len(m.tickets) {
-			return detailLoadedMsg{detail: "No tickets. Run 'tk create' to add one."}
+			return detailLoadedMsg{detail: detailParts{Body: "No tickets. Run 'tk create' to add one."}}
 		}
 		return detailLoadedMsg{detail: m.detailFor(m.tickets[m.selected].ID)}
 	}
@@ -1017,10 +1033,21 @@ func keyMsgFor(value string) tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: []rune(value)[0], Text: value})
 }
 
+func (m *model) applyDetail(detail detailParts) {
+	m.detailHeader = detail.Header
+	m.resizeDetail()
+	m.detail.SetContent(detail.Body)
+}
+
 func (m *model) resizeDetail() {
 	layout := layoutFor(m.width, m.height)
 	m.detail.SetWidth(layout.detailWidth)
-	m.detail.SetHeight(layout.detailHeight)
+	headerLines := 0
+	if m.detailHeader != "" {
+		headerLines = strings.Count(m.detailHeader, "\n") + 1
+	}
+	available := layout.detailHeight - headerLines - 1
+	m.detail.SetHeight(max(1, available))
 }
 
 func (m model) loadCmd() tea.Cmd {
@@ -1029,7 +1056,7 @@ func (m model) loadCmd() tea.Cmd {
 		if err != nil {
 			return errorMsg{err: err}
 		}
-		detail := "No tickets. Run 'tk create' to add one."
+		detail := detailParts{Body: "No tickets. Run 'tk create' to add one."}
 		filtered := FilterTickets(tickets, m.mode)
 		loadedModel := m
 		loadedModel.allTickets = tickets
@@ -1055,16 +1082,16 @@ func refreshTickCmd() tea.Cmd {
 	})
 }
 
-func (m model) detailFor(id string) string {
+func (m model) detailFor(id string) detailParts {
 	if m.config.TKScript == "" {
-		return "TK_SCRIPT is not set; detail view requires launching through 'tk tui'."
+		return detailParts{Body: "TK_SCRIPT is not set; detail view requires launching through 'tk tui'."}
 	}
 	output, err := m.runner(m.config.TKScript, "super", "show", id)
 	if err != nil {
-		return output + "\n" + err.Error()
+		return detailParts{Body: output + "\n" + err.Error()}
 	}
 	layout := layoutFor(m.width, m.height)
-	return RenderTicketDetail(output, m.config.TicketsDir, max(1, layout.detailWidth))
+	return RenderTicketDetailParts(output, m.config.TicketsDir, max(1, layout.detailWidth))
 }
 
 func (m model) actionCmd(action string) tea.Cmd {

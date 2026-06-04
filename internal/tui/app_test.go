@@ -125,7 +125,7 @@ func TestLoadedStartupDoesNotOpenQueryPrompt(t *testing.T) {
 
 	updated, _ := m.Update(loadedMsg{
 		tickets: []Ticket{{ID: "tic-one", Title: "One", Status: "open", Priority: 1}},
-		detail:  "# One",
+		detail:  detailParts{Body: "# One"},
 	})
 	view := updated.(model).View().Content
 
@@ -378,6 +378,30 @@ func TestRenderTicketRowKeepsStateSuffixVisibleWithinTightWidth(t *testing.T) {
 	}
 }
 
+func TestRenderListAlignsIDAndStateColumns(t *testing.T) {
+	tickets := []Ticket{
+		{ID: "tic-one", Title: "Short", Status: "open", Priority: 1},
+		{ID: "tic-two", Title: "Much longer ticket title", Status: "in_progress", Priority: 2},
+	}
+	m := model{allTickets: tickets, tickets: tickets}
+
+	lines := strings.Split(stripANSI(m.renderList(44, 10)), "\n")
+	var rowLines []string
+	for _, line := range lines {
+		if strings.Contains(line, "tic-one") || strings.Contains(line, "tic-two") {
+			rowLines = append(rowLines, line)
+		}
+	}
+	if len(rowLines) != 2 {
+		t.Fatalf("expected 2 row lines, got %d:\n%s", len(rowLines), strings.Join(lines, "\n"))
+	}
+	idColOne := strings.Index(rowLines[0], "tic-one")
+	idColTwo := strings.Index(rowLines[1], "tic-two")
+	if idColOne != idColTwo {
+		t.Fatalf("id columns are misaligned:\n%s\n%s", rowLines[0], rowLines[1])
+	}
+}
+
 func TestPreviewFocusChangesDetailTitle(t *testing.T) {
 	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
 	m.width = 120
@@ -482,6 +506,44 @@ func TestFooterShowsSectionPositionInsteadOfOpaqueModeCycle(t *testing.T) {
 	}
 }
 
+func TestPreviewScrollKeepsPinnedMetadataVisible(t *testing.T) {
+	runner := func(name string, args ...string) (string, error) {
+		return `---
+status: open
+priority: 1
+assignee: gkarolyi
+created: 2026-05-28T14:45:56Z
+---
+# dashboard header
+
+line one
+line two
+line three
+line four
+line five
+line six
+`, nil
+	}
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, runner)
+	m.width = 80
+	m.height = 24
+	m.allTickets = []Ticket{{ID: "tic-one", Title: "dashboard header", Status: "open", Priority: 1}}
+	m.tickets = m.allTickets
+	m.selected = 0
+	m.resizeDetail()
+	m.applyDetail(m.detailFor("tic-one"))
+	m.focus = focusPreview
+
+	updated, _ := m.Update(keyMsg("j"))
+	view := stripANSI(updated.(model).View().Content)
+
+	for _, want := range []string{"Status", "Priority", "Assignee", "Created"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("pinned metadata missing %q after scroll:\n%s", want, view)
+		}
+	}
+}
+
 func TestDetailForKeepsMetadataAboveLongMarkdown(t *testing.T) {
 	runner := func(name string, args ...string) (string, error) {
 		return `---
@@ -499,7 +561,8 @@ alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu
 	m.height = 28
 	m.resizeDetail()
 
-	detail := stripANSI(m.detailFor("tic-one"))
+	rendered := m.detailFor("tic-one")
+	detail := stripANSI(strings.TrimSpace(rendered.Header + "\n" + rendered.Body))
 	if strings.Index(detail, "Status") > strings.Index(detail, "alpha beta") {
 		t.Fatalf("metadata appears below markdown body:\n%s", detail)
 	}
@@ -585,7 +648,8 @@ alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron
 	m.height = 24
 	m.resizeDetail()
 
-	detail := stripANSI(m.detailFor("tic-one"))
+	rendered := m.detailFor("tic-one")
+	detail := stripANSI(strings.TrimSpace(rendered.Header + "\n" + rendered.Body))
 
 	if strings.Contains(detail, "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron") {
 		t.Fatalf("detail contains unwrapped long line:\n%s", detail)
@@ -606,8 +670,8 @@ func TestLoadCmdLoadsDetailForFirstRenderedTicket(t *testing.T) {
 
 	msg := m.loadCmd()().(loadedMsg)
 
-	if !strings.Contains(msg.detail, "tic-ready") {
-		t.Fatalf("loaded detail does not match first rendered ready ticket:\n%s", msg.detail)
+	if !strings.Contains(msg.detail.Header, "tic-ready") {
+		t.Fatalf("loaded detail does not match first rendered ready ticket:\n%#v", msg.detail)
 	}
 }
 
@@ -630,8 +694,8 @@ func TestLoadCmdPreservesSelectedTicketDetailOnRefresh(t *testing.T) {
 
 	msg := m.loadCmd()().(loadedMsg)
 
-	if !strings.Contains(msg.detail, "tic-work") {
-		t.Fatalf("loaded detail does not match selected ticket after refresh:\n%s", msg.detail)
+	if !strings.Contains(msg.detail.Header, "tic-work") {
+		t.Fatalf("loaded detail does not match selected ticket after refresh:\n%#v", msg.detail)
 	}
 }
 
@@ -660,9 +724,9 @@ Body text.
 	}
 	msg := cmd().(detailLoadedMsg)
 
-	detail := stripANSI(msg.detail)
+	detail := stripANSI(strings.TrimSpace(msg.detail.Header + "\n" + msg.detail.Body))
 	if !strings.Contains(detail, "Status") || !strings.Contains(detail, "Priority") {
-		t.Fatalf("resized detail was not re-rendered for current width:\n%s", msg.detail)
+		t.Fatalf("resized detail was not re-rendered for current width:\n%s", detail)
 	}
 }
 
@@ -769,35 +833,19 @@ func TestCommandPaletteKeyShowsSearchableCommands(t *testing.T) {
 	}
 }
 
-func TestHelpKeyKeepsSelectedTicketVisible(t *testing.T) {
-	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
-	m.width = 100
-	m.height = 30
-	m.tickets = []Ticket{{ID: "tic-one", Title: "Selected ticket", Status: "open", Priority: 2}}
-
-	updated, _ := m.Update(keyMsg("?"))
-	view := updated.(model).View().Content
-
-	for _, text := range []string{"Help", "Queue"} {
-		if !strings.Contains(view, text) {
-			t.Fatalf("help view missing %q:\n%s", text, view)
-		}
-	}
-}
-
 func TestHelpOverlayKeepsDashboardVisibleBehindModal(t *testing.T) {
 	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
 	m.width = 100
 	m.height = 28
 	m.tickets = []Ticket{{ID: "tic-one", Title: "Selected ticket", Status: "open", Priority: 1}}
 	m.allTickets = m.tickets
-	m.detail.SetContent("Selected detail")
+	m.detail.SetContent("Status    Priority\nopen      1\n\nSelected detail")
 	m.resizeDetail()
 
 	updated, _ := m.Update(keyMsg("?"))
 	view := stripANSI(updated.(model).View().Content)
 
-	for _, want := range []string{"Help", "Queue"} {
+	for _, want := range []string{"Help", "Queue", "Status"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("overlay view missing %q:\n%s", want, view)
 		}
@@ -810,15 +858,31 @@ func TestPaletteOverlayKeepsDashboardVisibleBehindModal(t *testing.T) {
 	m.height = 28
 	m.tickets = []Ticket{{ID: "tic-one", Title: "Selected ticket", Status: "open", Priority: 1}}
 	m.allTickets = m.tickets
-	m.detail.SetContent("Selected detail")
+	m.detail.SetContent("Status    Priority\nopen      1\n\nSelected detail")
 	m.resizeDetail()
 
 	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'p', Mod: tea.ModCtrl}))
 	view := stripANSI(updated.(model).View().Content)
 
-	for _, want := range []string{"Command Palette", "Queue"} {
+	for _, want := range []string{"Command Palette", "Queue", "Status"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("palette overlay missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestHelpKeyKeepsSelectedTicketVisible(t *testing.T) {
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
+	m.width = 100
+	m.height = 30
+	m.tickets = []Ticket{{ID: "tic-one", Title: "Selected ticket", Status: "open", Priority: 2}}
+
+	updated, _ := m.Update(keyMsg("?"))
+	view := updated.(model).View().Content
+
+	for _, text := range []string{"Help", "Queue"} {
+		if !strings.Contains(view, text) {
+			t.Fatalf("help view missing %q:\n%s", text, view)
 		}
 	}
 }

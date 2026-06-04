@@ -27,7 +27,7 @@ tags: [ui, backend]
 	if strings.Contains(rendered, "---") {
 		t.Fatalf("rendered detail still contains raw frontmatter separators:\n%s", rendered)
 	}
-	for _, want := range []string{"Status", "Priority", "Tags", "open", "ui, backend", "Build UI"} {
+	for _, want := range []string{"Status", "Priority", "open", "Build UI"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered detail missing metadata value %q:\n%s", want, rendered)
 		}
@@ -47,7 +47,7 @@ created: 2026-05-28
 
 	rendered := stripDetailANSI(RenderTicketDetail(raw, "/tmp/.tickets", 80))
 
-	for _, want := range []string{"Status", "Priority", "Assignee", "Tags", "Created"} {
+	for _, want := range []string{"Status", "Priority", "Assignee", "Created"} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("missing metadata header %q:\n%s", want, rendered)
 		}
@@ -142,6 +142,43 @@ func TestRenderTicketDetailLinksRelatedTickets(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "Dependency title") {
 		t.Fatalf("rendered detail missing dependency title:\n%s", rendered)
+	}
+}
+
+func TestRenderTicketDetailPartsSplitPinnedHeaderAndBody(t *testing.T) {
+	raw := `---
+id: abc-1234
+status: open
+deps: []
+links: []
+priority: 2
+assignee: gkarolyi
+tags: [ui, backend]
+created: 2026-05-28T14:45:56Z
+type: feature
+---
+# Build UI
+
+Summary paragraph.
+
+## Acceptance Criteria
+
+- Works well
+`
+
+	rendered := RenderTicketDetailParts(raw, "/tmp/.tickets", 60)
+
+	for _, want := range []string{"Build UI", "Status", "Priority", "Created", "2026-05-28"} {
+		if !strings.Contains(rendered.Header, want) {
+			t.Fatalf("header missing %q:\n%s", want, rendered.Header)
+		}
+	}
+	body := stripDetailANSI(rendered.Body)
+	if strings.Contains(body, "Status") || strings.Contains(body, "Created") {
+		t.Fatalf("body still contains pinned metadata:\n%s", body)
+	}
+	if !strings.Contains(body, "Summary paragraph") {
+		t.Fatalf("body missing markdown content:\n%s", body)
 	}
 }
 

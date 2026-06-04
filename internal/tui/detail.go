@@ -16,7 +16,24 @@ type metadataField struct {
 	value string
 }
 
+type detailParts struct {
+	Header string
+	Body   string
+}
+
 func RenderTicketDetail(raw string, ticketsDir string, widths ...int) string {
+	parts := RenderTicketDetailParts(raw, ticketsDir, widths...)
+	sections := make([]string, 0, 2)
+	if parts.Header != "" {
+		sections = append(sections, parts.Header)
+	}
+	if parts.Body != "" {
+		sections = append(sections, parts.Body)
+	}
+	return strings.TrimSpace(strings.Join(sections, "\n\n"))
+}
+
+func RenderTicketDetailParts(raw string, ticketsDir string, widths ...int) detailParts {
 	width := 0
 	if len(widths) > 0 {
 		width = widths[0]
@@ -24,20 +41,20 @@ func RenderTicketDetail(raw string, ticketsDir string, widths ...int) string {
 	frontmatter, body := splitFrontmatter(raw)
 	title, body := extractTitle(body)
 	fields := metadataFields(frontmatter)
-	sections := make([]string, 0, 4)
+	headerSections := make([]string, 0, 3)
 	if title != "" {
-		sections = append(sections, titleStyle.Render(title))
+		headerSections = append(headerSections, titleStyle.Render(title))
 	}
 	if metadata := renderMetadata(fields, width); metadata != "" {
-		sections = append(sections, metadata)
+		headerSections = append(headerSections, metadata)
 	}
 	if graph := renderRelationshipGraph(frontmatter, body); graph != "" {
-		sections = append(sections, graph)
+		headerSections = append(headerSections, graph)
 	}
-	if preview := renderMarkdownPreview(body, ticketsDir, width); preview != "" {
-		sections = append(sections, preview)
+	return detailParts{
+		Header: strings.TrimSpace(strings.Join(headerSections, "\n\n")),
+		Body:   renderMarkdownPreview(body, ticketsDir, width),
 	}
-	return strings.TrimSpace(strings.Join(sections, "\n\n"))
 }
 
 func splitFrontmatter(raw string) ([]string, string) {
@@ -75,7 +92,8 @@ func metadataFields(lines []string) []metadataField {
 		if !ok {
 			continue
 		}
-		values[strings.TrimSpace(key)] = formatMetadataValue(strings.TrimSpace(value))
+		key = strings.TrimSpace(key)
+		values[key] = formatMetadataValue(key, strings.TrimSpace(value))
 	}
 	ordered := []struct {
 		key   string
@@ -84,7 +102,6 @@ func metadataFields(lines []string) []metadataField {
 		{key: "status", label: "Status"},
 		{key: "priority", label: "Priority"},
 		{key: "assignee", label: "Assignee"},
-		{key: "tags", label: "Tags"},
 		{key: "created", label: "Created"},
 	}
 	fields := make([]metadataField, 0, len(ordered))
@@ -175,9 +192,12 @@ func padRight(value string, width int) string {
 	return value + strings.Repeat(" ", width-len(value))
 }
 
-func formatMetadataValue(value string) string {
+func formatMetadataValue(key string, value string) string {
 	value = strings.TrimPrefix(value, "[")
 	value = strings.TrimSuffix(value, "]")
+	if key == "created" && len(value) >= len("2006-01-02") {
+		return value[:10]
+	}
 	if value == "" {
 		return "-"
 	}
@@ -192,13 +212,17 @@ func titleCase(key string) string {
 }
 
 func renderMarkdownPreview(raw string, ticketsDir string, width int) string {
+	trimmedRaw := strings.TrimSpace(raw)
+	if trimmedRaw == "" {
+		return ""
+	}
 	if width > 0 {
-		if rendered, err := renderGlamourMarkdown(raw, width); err == nil {
+		if rendered, err := renderGlamourMarkdown(trimmedRaw, width); err == nil {
 			return strings.TrimSpace(rendered)
 		}
 	}
 
-	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	lines := strings.Split(trimmedRaw, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		switch {
@@ -290,7 +314,6 @@ func renderRelationshipGraph(frontmatter []string, body string) string {
 			lines = append(lines, "Linked      "+detail)
 		}
 	}
-
 	return strings.Join(lines, "\n")
 }
 
