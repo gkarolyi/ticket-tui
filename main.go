@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-
-	"github.com/gkarolyi/ticket-tui/internal/tui"
 )
 
 const description = "tk-plugin: Interactive terminal UI"
@@ -25,12 +23,12 @@ func main() {
 		}
 	}
 
-	config, err := tui.NewConfig(tui.EnvMap())
+	config, err := NewConfig(EnvMap())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
-	if err := tui.Run(config); err != nil {
+	if err := Run(config); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
