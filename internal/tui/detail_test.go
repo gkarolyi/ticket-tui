@@ -127,7 +127,7 @@ type: feature
 	}
 }
 
-func TestRenderTicketDetailLinksRelatedTickets(t *testing.T) {
+func TestRenderTicketDetailRendersRelationshipSummary(t *testing.T) {
 	raw := `# Blocked ticket
 
 ## Blockers
@@ -135,10 +135,10 @@ func TestRenderTicketDetailLinksRelatedTickets(t *testing.T) {
 - abc-0001 [open] Dependency title
 `
 
-	rendered := RenderTicketDetail(raw, "/tmp/.tickets")
+	rendered := stripDetailANSI(RenderTicketDetail(raw, "/tmp/.tickets"))
 
-	if !strings.Contains(rendered, "\x1b]8;;file:///tmp/.tickets/abc-0001.md\x1b\\") {
-		t.Fatalf("rendered detail missing terminal hyperlink:\n%s", rendered)
+	if !strings.Contains(rendered, "Blocked by") {
+		t.Fatalf("rendered detail missing relationship summary:\n%s", rendered)
 	}
 	if !strings.Contains(rendered, "Dependency title") {
 		t.Fatalf("rendered detail missing dependency title:\n%s", rendered)
@@ -179,6 +179,99 @@ Summary paragraph.
 	}
 	if !strings.Contains(body, "Summary paragraph") {
 		t.Fatalf("body missing markdown content:\n%s", body)
+	}
+}
+
+func TestRenderTicketDetailPartsUsesNotesSectionAsBody(t *testing.T) {
+	raw := `---
+id: abc-1234
+status: open
+priority: 2
+assignee: gkarolyi
+created: 2026-05-28T14:45:56Z
+---
+# Build UI
+
+Intro paragraph.
+
+## Notes
+
+This is the notes body.
+
+## Blocking
+
+- dep-1234 [open] Dependency title
+
+## Children
+
+- child-1234 [open] Child title
+`
+
+	rendered := RenderTicketDetailParts(raw, "/tmp/.tickets", 60)
+	body := stripDetailANSI(rendered.Body)
+
+	if !strings.Contains(body, "This is the notes body.") {
+		t.Fatalf("body missing notes section:\n%s", body)
+	}
+	for _, unwanted := range []string{"Blocking", "Children", "Dependency title", "Child title", "Intro paragraph"} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("body still contains filtered or non-notes content %q:\n%s", unwanted, body)
+		}
+	}
+}
+
+func TestRenderTicketDetailPartsAddsBodySectionHeading(t *testing.T) {
+	raw := `---
+id: abc-1234
+status: open
+priority: 2
+assignee: gkarolyi
+created: 2026-05-28T14:45:56Z
+---
+# Build UI
+
+One single paragraph of text.
+`
+
+	rendered := RenderTicketDetailParts(raw, "/tmp/.tickets", 60)
+	body := stripDetailANSI(rendered.Body)
+
+	if !strings.Contains(body, "Content") {
+		t.Fatalf("body missing content heading for visual separation:\n%s", body)
+	}
+}
+
+func TestRenderTicketDetailPartsSkipsRelationshipSectionsWithoutNotes(t *testing.T) {
+	raw := `---
+id: abc-1234
+status: open
+priority: 2
+assignee: gkarolyi
+created: 2026-05-28T14:45:56Z
+---
+# Build UI
+
+One single paragraph of text.
+
+## Blocking
+
+- dep-1234 [open] Dependency title
+
+## Children
+
+- child-1234 [open] Child title
+`
+
+	rendered := RenderTicketDetailParts(raw, "/tmp/.tickets", 60)
+	body := stripDetailANSI(rendered.Body)
+
+	if !strings.Contains(body, "One single paragraph of text.") {
+		t.Fatalf("body missing freeform paragraph:\n%s", body)
+	}
+	for _, unwanted := range []string{"Blocking", "Children", "Dependency title", "Child title"} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("body still contains relationship section %q:\n%s", unwanted, body)
+		}
 	}
 }
 

@@ -793,15 +793,17 @@ func (m model) renderList(width, height int) string {
 }
 
 func (m model) renderListLines(width int) ([]string, int) {
-	lines := make([]string, 0, len(m.tickets)+len(m.visibleSections()))
+	sections := m.visibleSections()
+	cols := m.listColumns(sections)
+	lines := make([]string, 0, len(m.tickets)+len(sections))
 	selectedLine := -1
-	for _, section := range m.visibleSections() {
+	for _, section := range sections {
 		lines = append(lines, titleStyle.Render(truncateText(fmt.Sprintf("─ %s (%d)", section.name, len(section.tickets)), width)))
 		for _, ticket := range section.tickets {
 			if selectedID(m) == ticket.ID {
 				selectedLine = len(lines)
 			}
-			lines = append(lines, m.renderTicketRow(ticket, width))
+			lines = append(lines, m.renderTicketRow(ticket, width, cols))
 		}
 	}
 	return lines, selectedLine
@@ -810,6 +812,11 @@ func (m model) renderListLines(width int) ([]string, int) {
 type ticketSection struct {
 	name    string
 	tickets []Ticket
+}
+
+type listColumns struct {
+	idWidth    int
+	stateWidth int
 }
 
 func (m model) visibleSections() []ticketSection {
@@ -915,14 +922,14 @@ func (m model) nextSectionFirstIndex() int {
 	return 0
 }
 
-func (m model) renderTicketRow(ticket Ticket, width int) string {
+func (m model) renderTicketRow(ticket Ticket, width int, cols listColumns) string {
 	marker := " "
 	if selectedID(m) == ticket.ID {
 		marker = ">"
 	}
 	state := m.ticketStateLabel(ticket)
-	idCol := padListCell(ticket.ID, 8)
-	stateCol := padListCell(state, 9)
+	idCol := padListCell(ticket.ID, cols.idWidth)
+	stateCol := padListCell(state, cols.stateWidth)
 	prefix := fmt.Sprintf("%s P%d  ", marker, ticket.Priority)
 	suffix := "  " + idCol + "  " + stateCol
 	titleWidth := max(1, width-len(prefix)-len(suffix))
@@ -936,6 +943,21 @@ func (m model) renderTicketRow(ticket Ticket, width int) string {
 		return mutedStyle.Render(line)
 	}
 	return line
+}
+
+func (m model) listColumns(sections []ticketSection) listColumns {
+	cols := listColumns{idWidth: 8, stateWidth: 9}
+	for _, section := range sections {
+		for _, ticket := range section.tickets {
+			if w := len(ticket.ID); w > cols.idWidth {
+				cols.idWidth = w
+			}
+			if w := len(m.ticketStateLabel(ticket)); w > cols.stateWidth {
+				cols.stateWidth = w
+			}
+		}
+	}
+	return cols
 }
 
 func padListCell(value string, width int) string {

@@ -331,7 +331,7 @@ func TestRenderTicketRowPrioritizesTitleBeforeIDAndStatus(t *testing.T) {
 	tickets := []Ticket{{ID: "tic-ready", Title: "Add dashboard header", Status: "open", Priority: 1}}
 	m := model{allTickets: tickets, tickets: tickets}
 
-	row := stripANSI(m.renderTicketRow(tickets[0], 80))
+	row := stripANSI(m.renderTicketRow(tickets[0], 80, m.listColumns(m.visibleSections())))
 
 	if !strings.Contains(row, "P1  Add dashboard header") {
 		t.Fatalf("row missing title-first prefix: %q", row)
@@ -351,7 +351,7 @@ func TestRenderTicketRowShowsBlockedCountInline(t *testing.T) {
 	}
 	m := model{allTickets: tickets, tickets: tickets}
 
-	row := stripANSI(m.renderTicketRow(tickets[1], 80))
+	row := stripANSI(m.renderTicketRow(tickets[1], 80, m.listColumns(m.visibleSections())))
 
 	if !strings.Contains(row, "blocked·1") {
 		t.Fatalf("blocked row missing inline blocker count: %q", row)
@@ -391,7 +391,7 @@ func TestRenderTicketRowKeepsStateSuffixVisibleWithinTightWidth(t *testing.T) {
 	tickets := []Ticket{{ID: "tic-work", Title: "Refine metadata grid for dashboard", Status: "in_progress", Priority: 1}}
 	m := model{allTickets: tickets, tickets: tickets}
 
-	row := stripANSI(m.renderTicketRow(tickets[0], 40))
+	row := stripANSI(m.renderTicketRow(tickets[0], 40, m.listColumns(m.visibleSections())))
 
 	if !strings.Contains(row, "active") {
 		t.Fatalf("row lost state suffix inside tight width:\n%s", row)
@@ -422,6 +422,34 @@ func TestRenderListAlignsIDAndStateColumns(t *testing.T) {
 	idColTwo := strings.Index(rowLines[1], "tic-two")
 	if idColOne != idColTwo {
 		t.Fatalf("id columns are misaligned:\n%s\n%s", rowLines[0], rowLines[1])
+	}
+}
+
+func TestRenderListAlignsColumnsAcrossSections(t *testing.T) {
+	tickets := []Ticket{
+		{ID: "tic-ready", Title: "Ready item", Status: "open", Priority: 1},
+		{ID: "tic-work", Title: "Started item", Status: "in_progress", Priority: 2},
+		{ID: "tic-done", Title: "Closed item", Status: "closed", Priority: 3},
+	}
+	m := model{allTickets: tickets, tickets: tickets}
+
+	lines := strings.Split(stripANSI(m.renderList(52, 10)), "\n")
+	var rowLines []string
+	for _, line := range lines {
+		if strings.Contains(line, "tic-ready") || strings.Contains(line, "tic-work") || strings.Contains(line, "tic-done") {
+			rowLines = append(rowLines, line)
+		}
+	}
+	if len(rowLines) != 3 {
+		t.Fatalf("expected 3 row lines, got %d:\n%s", len(rowLines), strings.Join(lines, "\n"))
+	}
+	idCols := []int{
+		strings.Index(rowLines[0], "tic-ready"),
+		strings.Index(rowLines[1], "tic-work"),
+		strings.Index(rowLines[2], "tic-done"),
+	}
+	if idCols[0] != idCols[1] || idCols[1] != idCols[2] {
+		t.Fatalf("id columns are misaligned across sections:\n%s\n%s\n%s", rowLines[0], rowLines[1], rowLines[2])
 	}
 }
 

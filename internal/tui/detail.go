@@ -53,7 +53,7 @@ func RenderTicketDetailParts(raw string, ticketsDir string, widths ...int) detai
 	}
 	return detailParts{
 		Header: strings.TrimSpace(strings.Join(headerSections, "\n\n")),
-		Body:   renderMarkdownPreview(body, ticketsDir, width),
+		Body:   renderPreviewBody(body, ticketsDir, width),
 	}
 }
 
@@ -211,6 +211,15 @@ func titleCase(key string) string {
 	return strings.ToUpper(key[:1]) + key[1:]
 }
 
+func renderPreviewBody(raw string, ticketsDir string, width int) string {
+	title, content := previewBodyContent(raw)
+	content = renderMarkdownPreview(content, ticketsDir, width)
+	if title == "" || content == "" {
+		return content
+	}
+	return titleStyle.Render(title) + "\n\n" + content
+}
+
 func renderMarkdownPreview(raw string, ticketsDir string, width int) string {
 	trimmedRaw := strings.TrimSpace(raw)
 	if trimmedRaw == "" {
@@ -235,6 +244,82 @@ func renderMarkdownPreview(raw string, ticketsDir string, width int) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func previewBodyContent(raw string) (string, string) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", ""
+	}
+	lines := strings.Split(trimmed, "\n")
+	sections := splitMarkdownSections(lines)
+	for _, section := range sections {
+		if strings.EqualFold(section.heading, "Notes") {
+			return "Notes", strings.Join(section.lines, "\n")
+		}
+	}
+	filtered := make([]string, 0, len(lines))
+	for _, section := range sections {
+		if isRelationshipHeading(section.heading) {
+			continue
+		}
+		filtered = append(filtered, section.lines...)
+	}
+	return "Content", strings.TrimSpace(strings.Join(filtered, "\n"))
+}
+
+type markdownSection struct {
+	heading string
+	lines   []string
+}
+
+func splitMarkdownSections(lines []string) []markdownSection {
+	sections := make([]markdownSection, 0, 4)
+	current := markdownSection{}
+	push := func() {
+		if current.heading == "" && len(current.lines) == 0 {
+			return
+		}
+		current.lines = trimBlankLines(current.lines)
+		if len(current.lines) == 0 {
+			current = markdownSection{}
+			return
+		}
+		sections = append(sections, current)
+		current = markdownSection{}
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "## ") {
+			push()
+			current.heading = strings.TrimSpace(strings.TrimPrefix(trimmed, "## "))
+			continue
+		}
+		current.lines = append(current.lines, line)
+	}
+	push()
+	return sections
+}
+
+func trimBlankLines(lines []string) []string {
+	start := 0
+	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
+		start++
+	}
+	end := len(lines)
+	for end > start && strings.TrimSpace(lines[end-1]) == "" {
+		end--
+	}
+	return lines[start:end]
+}
+
+func isRelationshipHeading(heading string) bool {
+	switch strings.TrimSpace(strings.ToLower(heading)) {
+	case "blockers", "blocking", "children", "linked":
+		return true
+	default:
+		return false
+	}
 }
 
 func renderGlamourMarkdown(raw string, width int) (string, error) {
