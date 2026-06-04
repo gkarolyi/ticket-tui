@@ -118,6 +118,67 @@ func TestCreateKeyShowsModal(t *testing.T) {
 	}
 }
 
+func TestCreateModalAdvancesToDescriptionStep(t *testing.T) {
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
+	m.width = 80
+	m.height = 24
+
+	updated, _ := m.Update(keyMsg("n"))
+	updated, _ = updated.(model).Update(keyMsg("T"))
+	updated, _ = updated.(model).Update(keyMsg("i"))
+	updated, _ = updated.(model).Update(keyMsg("t"))
+	updated, _ = updated.(model).Update(keyMsg("l"))
+	updated, _ = updated.(model).Update(keyMsg("e"))
+	updated, _ = updated.(model).Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+
+	view := updated.(model).View().Content
+
+	if !strings.Contains(view, "Description") {
+		t.Fatalf("view does not contain description step after title submit:\n%s", view)
+	}
+	if !strings.Contains(view, "Title") || !strings.Contains(view, "Title") {
+		t.Fatalf("view does not retain title context:\n%s", view)
+	}
+}
+
+func TestCreateModalSubmitsDescriptionWithCreateCommand(t *testing.T) {
+	var gotName string
+	var gotArgs []string
+	runner := func(name string, args ...string) (string, error) {
+		gotName = name
+		gotArgs = append([]string{}, args...)
+		return "tic-new1", nil
+	}
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, runner)
+	m.width = 80
+	m.height = 24
+
+	updated, _ := m.Update(keyMsg("n"))
+	for _, key := range []string{"T", "i", "t", "l", "e"} {
+		updated, _ = updated.(model).Update(keyMsg(key))
+	}
+	updated, _ = updated.(model).Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	for _, key := range []string{"D", "e", "s", "c"} {
+		updated, _ = updated.(model).Update(keyMsg(key))
+	}
+	_, cmd := updated.(model).Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if cmd == nil {
+		t.Fatal("enter on description did not submit create command")
+	}
+	msg := cmd()
+	status, ok := msg.(statusMsg)
+	if !ok {
+		t.Fatalf("msg = %#v, want statusMsg", msg)
+	}
+	if status.text != "Created tic-new1" {
+		t.Fatalf("status = %q, want Created tic-new1", status.text)
+	}
+	if gotName == "" {
+		t.Fatal("runner was not called")
+	}
+	assertStrings(t, gotArgs, []string{"super", "create", "Title", "-d", "Desc"})
+}
+
 func TestLoadedStartupDoesNotOpenQueryPrompt(t *testing.T) {
 	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
 	m.width = 120

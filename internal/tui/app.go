@@ -46,6 +46,8 @@ type model struct {
 	err          string
 	prompt       promptKind
 	input        textinput.Model
+	createTitle  string
+	createStep   int
 	queryShown   bool
 	helpShown    bool
 	palette      paletteState
@@ -82,6 +84,11 @@ const (
 	promptNone promptKind = iota
 	promptCreate
 	promptQuery
+)
+
+const (
+	createStepTitle = iota
+	createStepDescription
 )
 
 type loadedMsg struct {
@@ -313,6 +320,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadCmd()
 		case "n":
 			m.prompt = promptCreate
+			m.createTitle = ""
+			m.createStep = createStepTitle
 			m.input = newTextInput("Ticket title")
 			m.status = "Create ticket title:"
 			return m, nil
@@ -1051,20 +1060,38 @@ func (m model) updatePrompt(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc", "ctrl+c":
 		m.prompt = promptNone
 		m.input = newTextInput("")
+		m.createTitle = ""
+		m.createStep = createStepTitle
 		m.status = "Cancelled"
 		m.err = ""
 		return m, nil
 	case "enter":
 		input := strings.TrimSpace(m.input.Value())
-		prompt := m.prompt
+		if m.prompt == promptCreate {
+			if m.createStep == createStepTitle {
+				if input == "" {
+					m.status = "Cancelled"
+					m.prompt = promptNone
+					return m, nil
+				}
+				m.createTitle = input
+				m.createStep = createStepDescription
+				m.input = newTextInput("Optional description")
+				m.status = "Create ticket description:"
+				return m, nil
+			}
+			title := m.createTitle
+			m.prompt = promptNone
+			m.createTitle = ""
+			m.createStep = createStepTitle
+			m.input = newTextInput("")
+			return m, m.createCmd(title, input)
+		}
 		m.prompt = promptNone
 		m.input = newTextInput("")
 		if input == "" {
 			m.status = "Cancelled"
 			return m, nil
-		}
-		if prompt == promptCreate {
-			return m, m.createCmd(input)
 		}
 		return m, m.queryCmd(input)
 	default:
@@ -1076,12 +1103,24 @@ func (m model) updatePrompt(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m model) renderPromptModal() string {
 	if m.prompt == promptCreate {
-		return modalStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
-			titleStyle.Render("Create Ticket"),
-			"Title",
-			m.input.View(),
-			mutedStyle.Render("enter create  esc cancel"),
-		))
+		lines := []string{titleStyle.Render("Create Ticket")}
+		if m.createStep == createStepTitle {
+			lines = append(lines,
+				"Title",
+				m.input.View(),
+				mutedStyle.Render("enter next  esc cancel"),
+			)
+		} else {
+			lines = append(lines,
+				"Title",
+				m.createTitle,
+				"",
+				"Description",
+				m.input.View(),
+				mutedStyle.Render("enter create  esc cancel"),
+			)
+		}
+		return modalStyle.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 	}
 	if m.prompt == promptQuery {
 		return modalStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
@@ -1241,9 +1280,13 @@ func (m model) addDependenciesCmd(dependencyIDs []string) tea.Cmd {
 	}
 }
 
-func (m model) createCmd(title string) tea.Cmd {
+func (m model) createCmd(title string, description string) tea.Cmd {
 	return func() tea.Msg {
-		spec, err := commandSpec(m.config, "super", "create", title)
+		args := []string{"super", "create", title}
+		if description != "" {
+			args = append(args, "-d", description)
+		}
+		spec, err := commandSpec(m.config, args...)
 		if err != nil {
 			return errorMsg{err: err}
 		}
