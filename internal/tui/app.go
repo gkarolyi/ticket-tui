@@ -799,6 +799,17 @@ func sectionCount(sections []ticketSection, name string) int {
 	return 0
 }
 
+func unresolvedDepCount(ticket Ticket, byID map[string]Ticket) int {
+	count := 0
+	for _, depID := range ticket.Deps {
+		dep, ok := byID[depID]
+		if !ok || dep.Status != "closed" {
+			count++
+		}
+	}
+	return count
+}
+
 func (m model) orderedTickets() []Ticket {
 	sections := m.visibleSections()
 	if len(sections) == 0 {
@@ -849,7 +860,7 @@ func (m model) renderTicketRow(ticket Ticket, width int) string {
 	if selectedID(m) == ticket.ID {
 		marker = ">"
 	}
-	line := fmt.Sprintf("%s %-8s P%d %-11s %s", marker, ticket.ID, ticket.Priority, statusLabel(ticket.Status), ticket.Title)
+	line := fmt.Sprintf("%s P%d  %s  %s  %s", marker, ticket.Priority, ticket.Title, ticket.ID, m.ticketStateLabel(ticket))
 	line = truncateText(line, width)
 	if selectedID(m) == ticket.ID {
 		return selectedStyle.Render(line)
@@ -858,6 +869,20 @@ func (m model) renderTicketRow(ticket Ticket, width int) string {
 		return mutedStyle.Render(line)
 	}
 	return line
+}
+
+func (m model) ticketStateLabel(ticket Ticket) string {
+	if ticket.Status == "closed" {
+		return "closed"
+	}
+	if ticket.Status == "in_progress" {
+		return "active"
+	}
+	byID := ticketMap(m.allTickets)
+	if unresolved := unresolvedDepCount(ticket, byID); unresolved > 0 {
+		return fmt.Sprintf("blocked·%d", unresolved)
+	}
+	return "ready"
 }
 
 func statusLabel(status string) string {

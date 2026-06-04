@@ -303,6 +303,48 @@ func TestMainFooterCondensesOnNarrowScreens(t *testing.T) {
 	}
 }
 
+func TestRenderTicketRowPrioritizesTitleBeforeIDAndStatus(t *testing.T) {
+	tickets := []Ticket{{ID: "tic-ready", Title: "Add dashboard header", Status: "open", Priority: 1}}
+	m := model{allTickets: tickets, tickets: tickets}
+
+	row := stripANSI(m.renderTicketRow(tickets[0], 80))
+
+	if !strings.Contains(row, "P1  Add dashboard header") {
+		t.Fatalf("row missing title-first prefix: %q", row)
+	}
+	if !strings.Contains(row, "tic-ready") {
+		t.Fatalf("row missing ticket id: %q", row)
+	}
+	if !strings.Contains(row, "ready") {
+		t.Fatalf("row missing compact readiness label: %q", row)
+	}
+}
+
+func TestRenderTicketRowShowsBlockedCountInline(t *testing.T) {
+	tickets := []Ticket{
+		{ID: "tic-dep", Title: "Dependency", Status: "open", Priority: 1},
+		{ID: "tic-block", Title: "Blocked ticket", Status: "open", Priority: 2, Deps: []string{"tic-dep"}},
+	}
+	m := model{allTickets: tickets, tickets: tickets}
+
+	row := stripANSI(m.renderTicketRow(tickets[1], 80))
+
+	if !strings.Contains(row, "blocked·1") {
+		t.Fatalf("blocked row missing inline blocker count: %q", row)
+	}
+}
+
+func TestRenderListShowsCompactSectionHeaders(t *testing.T) {
+	tickets := []Ticket{{ID: "tic-ready", Title: "Ready ticket", Status: "open", Priority: 1}}
+	m := model{allTickets: tickets, tickets: tickets}
+
+	view := stripANSI(m.renderList(40, 10))
+
+	if !strings.Contains(view, "─ Ready (1)") {
+		t.Fatalf("list missing compact section header:\n%s", view)
+	}
+}
+
 func TestViewShowsBoardAndDetailTitles(t *testing.T) {
 	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
 	m.width = 120
