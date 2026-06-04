@@ -472,6 +472,29 @@ func TestPreviewFocusChangesDetailTitle(t *testing.T) {
 	}
 }
 
+func TestPreviewFocusUsesFullScreenReader(t *testing.T) {
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
+	m.width = 120
+	m.height = 30
+	m.focus = focusPreview
+	m.allTickets = []Ticket{{ID: "tic-one", Title: "Selected ticket", Status: "open", Priority: 1}}
+	m.tickets = m.allTickets
+	m.detailHeader = "Status    Priority\nopen      1"
+	m.detail.SetContent("Notes\n\nSelected detail")
+	m.resizeDetail()
+
+	view := stripANSI(m.View().Content)
+
+	if strings.Contains(view, "Queue") {
+		t.Fatalf("preview focus still shows queue instead of full-screen reader:\n%s", view)
+	}
+	for _, want := range []string{"Preview: tic-one", "Status", "Notes", "Selected detail"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("preview view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestPreviewFooterPrioritizesEscapeOnNarrowScreens(t *testing.T) {
 	footer := footerFor(model{width: 32, focus: focusPreview})
 
@@ -619,6 +642,35 @@ alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu
 	}
 }
 
+func TestViewAddsBlankLineBetweenPinnedHeaderAndBody(t *testing.T) {
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
+	m.width = 100
+	m.height = 28
+	m.tickets = []Ticket{{ID: "tic-one", Title: "Selected ticket", Status: "open", Priority: 1}}
+	m.allTickets = m.tickets
+	m.detailHeader = "Status    Priority\nopen      1"
+	m.detail.SetContent("Notes\n\nSelected detail")
+	m.resizeDetail()
+
+	view := stripANSI(m.View().Content)
+
+	lines := strings.Split(view, "\n")
+	openLine := -1
+	notesLine := -1
+	for i, line := range lines {
+		if strings.Contains(line, "open      1") {
+			openLine = i
+		}
+		if strings.Contains(line, "Notes") {
+			notesLine = i
+			break
+		}
+	}
+	if openLine == -1 || notesLine == -1 || notesLine-openLine < 2 || strings.TrimSpace(lines[notesLine-1]) != "" {
+		t.Fatalf("view missing blank line between pinned header and body:\n%s", view)
+	}
+}
+
 func TestViewSeparatesLongListRowsFromDetailPane(t *testing.T) {
 	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
 	m.width = 120
@@ -646,10 +698,13 @@ func TestEnterFocusesPreviewPane(t *testing.T) {
 	m.tickets = []Ticket{{ID: "tic-one", Title: "Selected ticket", Status: "open", Priority: 1}}
 	m.detail.SetContent("Selected detail")
 
-	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 
 	if updated.(model).focus != focusPreview {
 		t.Fatalf("focus = %v, want focusPreview", updated.(model).focus)
+	}
+	if cmd == nil {
+		t.Fatal("enter did not request detail reload for preview mode")
 	}
 }
 
@@ -659,10 +714,13 @@ func TestEscapeReturnsFocusToTicketList(t *testing.T) {
 	m.height = 30
 	m.focus = focusPreview
 
-	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 
 	if updated.(model).focus != focusTickets {
 		t.Fatalf("focus = %v, want focusTickets", updated.(model).focus)
+	}
+	if cmd == nil {
+		t.Fatal("escape did not request detail reload for list mode")
 	}
 }
 

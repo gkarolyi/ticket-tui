@@ -266,7 +266,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.focus == focusPreview {
 				m.focus = focusTickets
 				m.status = "Focused ticket list"
-				return m, nil
+				m.resizeDetail()
+				return m, m.loadDetailCmd()
 			}
 		case "ctrl+c", "q":
 			return m, tea.Quit
@@ -294,6 +295,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if selectedID(m) != "" {
 				m.focus = focusPreview
 				m.status = "Focused preview"
+				m.resizeDetail()
+				return m, m.loadDetailCmd()
 			}
 			return m, nil
 		case "tab":
@@ -350,6 +353,7 @@ func (m model) View() tea.View {
 
 	header := titleStyle.Render(m.headerText())
 	layout := layoutFor(m.width, m.height)
+	detailWidth, detailHeight := m.detailDimensions()
 
 	listTitle := titleStyle.Render("Queue")
 	listContent := lipgloss.NewStyle().Width(layout.listWidth).Height(layout.listHeight).Render(m.renderList(layout.listWidth, layout.listHeight))
@@ -372,18 +376,23 @@ func (m model) View() tea.View {
 	if m.detailHeader != "" {
 		detailSections = append(detailSections, m.detailHeader)
 	}
+	if m.detailHeader != "" && detailContent != "" {
+		detailSections = append(detailSections, "")
+	}
 	detailSections = append(detailSections, detailContent)
 	detailInner := lipgloss.JoinVertical(lipgloss.Left, detailSections...)
 	if overlay != "" {
-		detailInner = overlayBody(detailInner, overlay, layout.detailWidth, layout.detailHeight)
+		detailInner = overlayBody(detailInner, overlay, detailWidth, detailHeight)
 	}
-	detail := lipgloss.NewStyle().Width(layout.detailWidth).Height(layout.detailHeight).Render(detailInner)
-	gutter := strings.Repeat(" ", layout.gutterWidth)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, list, gutter, detail)
-	if layout.vertical {
-		body = lipgloss.JoinVertical(lipgloss.Left, list, detail)
+	detail := lipgloss.NewStyle().Width(detailWidth).Height(detailHeight).Render(detailInner)
+	body := detail
+	if m.focus != focusPreview {
+		gutter := strings.Repeat(" ", layout.gutterWidth)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, list, gutter, detail)
+		if layout.vertical {
+			body = lipgloss.JoinVertical(lipgloss.Left, list, detail)
+		}
 	}
-
 	footerText := footerFor(m)
 	footerStyle := mutedStyle
 	if m.err != "" {
@@ -1072,14 +1081,22 @@ func (m *model) applyDetail(detail detailParts) {
 }
 
 func (m *model) resizeDetail() {
-	layout := layoutFor(m.width, m.height)
-	m.detail.SetWidth(layout.detailWidth)
+	detailWidth, detailHeight := m.detailDimensions()
+	m.detail.SetWidth(detailWidth)
 	headerLines := 0
 	if m.detailHeader != "" {
 		headerLines = strings.Count(m.detailHeader, "\n") + 1
 	}
-	available := layout.detailHeight - headerLines - 1
+	available := detailHeight - headerLines - 1
 	m.detail.SetHeight(max(1, available))
+}
+
+func (m model) detailDimensions() (int, int) {
+	layout := layoutFor(m.width, m.height)
+	if m.focus == focusPreview {
+		return m.width, layout.bodyHeight
+	}
+	return layout.detailWidth, layout.detailHeight
 }
 
 func (m model) loadCmd() tea.Cmd {
@@ -1122,8 +1139,8 @@ func (m model) detailFor(id string) detailParts {
 	if err != nil {
 		return detailParts{Body: output + "\n" + err.Error()}
 	}
-	layout := layoutFor(m.width, m.height)
-	return RenderTicketDetailParts(output, m.config.TicketsDir, max(1, layout.detailWidth))
+	detailWidth, _ := m.detailDimensions()
+	return RenderTicketDetailParts(output, m.config.TicketsDir, max(1, detailWidth))
 }
 
 func (m model) actionCmd(action string) tea.Cmd {
