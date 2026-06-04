@@ -505,6 +505,26 @@ func TestPreviewFooterPrioritizesEscapeOnNarrowScreens(t *testing.T) {
 	}
 }
 
+func TestPreviewModalViewUsesCursorOverlaySequences(t *testing.T) {
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
+	m.width = 120
+	m.height = 30
+	m.focus = focusPreview
+	m.allTickets = []Ticket{{ID: "tic-one", Title: "Selected ticket", Status: "open", Priority: 1}}
+	m.tickets = m.allTickets
+	m.detailHeader = "Status    Priority\nopen      1"
+	m.detail.SetContent("Notes\n\nSelected detail")
+	m.resizeDetail()
+
+	view := m.View().Content
+
+	for _, want := range []string{"Queue", "Preview: tic-one", "\x1b[s", "\x1b[u"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("preview modal view missing %q:\n%q", want, view)
+		}
+	}
+}
+
 func TestTabMovesSelectionToNextVisibleSection(t *testing.T) {
 	tickets := []Ticket{
 		{ID: "tic-ready", Title: "Ready ticket", Status: "open", Priority: 1},

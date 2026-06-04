@@ -15,6 +15,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type Config struct {
@@ -369,18 +370,11 @@ func (m model) View() tea.View {
 	}
 	detailSections = append(detailSections, detailContent)
 	detailInner := lipgloss.JoinVertical(lipgloss.Left, detailSections...)
-	if overlay := m.activeOverlay(); overlay != "" {
-		detailInner = overlayBody(detailInner, overlay, layout.detailWidth, layout.detailHeight)
-	}
 	detail := lipgloss.NewStyle().Width(layout.detailWidth).Height(layout.detailHeight).Render(detailInner)
 	gutter := strings.Repeat(" ", layout.gutterWidth)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, list, gutter, detail)
 	if layout.vertical {
 		body = lipgloss.JoinVertical(lipgloss.Left, list, detail)
-	}
-	if m.focus == focusPreview {
-		modalWidth, modalHeight := m.previewModalDimensions()
-		body = overlayPreviewBody(stripANSIText(body), stripANSIText(m.renderPreviewModal()), m.width, layout.bodyHeight, modalWidth, modalHeight)
 	}
 
 	footerText := footerFor(m)
@@ -389,7 +383,15 @@ func (m model) View() tea.View {
 		footerStyle = errorStyle
 	}
 
-	view := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, body, footerStyle.Render(footerText)))
+	content := lipgloss.JoinVertical(lipgloss.Left, header, body, footerStyle.Render(footerText))
+	if overlay := m.activeOverlay(); overlay != "" {
+		content = overlayOnScreen(content, overlay, m.width, layout.bodyHeight, 2)
+	}
+	if m.focus == focusPreview {
+		content = overlayOnScreen(content, m.renderPreviewModal(), m.width, layout.bodyHeight, 2)
+	}
+
+	view := tea.NewView(content)
 	view.AltScreen = true
 	return view
 }
@@ -525,57 +527,29 @@ func (m model) previewModalDimensions() (int, int) {
 	return width, height
 }
 
-func overlayBody(base string, overlay string, width int, height int) string {
-	base = lipgloss.NewStyle().Width(width).Height(height).Render(base)
-	baseLines := strings.Split(base, "\n")
-	overlayLines := strings.Split(overlay, "\n")
-	if len(baseLines) == 0 || len(overlayLines) == 0 {
-		return base
+func overlayOnScreen(screen string, overlay string, width int, height int, topRow int) string {
+	lines := strings.Split(strings.TrimRight(overlay, "\n"), "\n")
+	if len(lines) == 0 {
+		return screen
 	}
-	start := max(0, (len(baseLines)-len(overlayLines))/2)
-	for i, line := range overlayLines {
-		if start+i >= len(baseLines) {
-			break
+	overlayWidth := 0
+	for _, line := range lines {
+		if w := ansi.StringWidth(line); w > overlayWidth {
+			overlayWidth = w
 		}
-		baseLine := []rune(baseLines[start+i])
-		overlayLine := []rune(lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
-		for j, ch := range overlayLine {
-			if j >= len(baseLine) {
-				break
-			}
-			if ch != ' ' {
-				baseLine[j] = ch
-			}
-		}
-		baseLines[start+i] = string(baseLine)
 	}
-	return strings.Join(baseLines, "\n")
-}
+	startRow := topRow + max(0, (height-len(lines))/2)
+	startCol := 1 + max(0, (width-overlayWidth)/2)
 
-func overlayPreviewBody(base string, overlay string, width int, height int, modalWidth int, _ int) string {
-	base = lipgloss.NewStyle().Width(width).Height(height).Render(base)
-	baseLines := strings.Split(base, "\n")
-	overlayLines := strings.Split(overlay, "\n")
-	if len(baseLines) == 0 || len(overlayLines) == 0 {
-		return base
+	var b strings.Builder
+	b.WriteString(screen)
+	b.WriteString(ansi.SaveCursorPosition)
+	for i, line := range lines {
+		b.WriteString(ansi.CursorPosition(startCol, startRow+i))
+		b.WriteString(line)
 	}
-	startY := max(0, (len(baseLines)-len(overlayLines))/2)
-	startX := max(0, (width-modalWidth)/2)
-	for i, line := range overlayLines {
-		if startY+i >= len(baseLines) {
-			break
-		}
-		baseRunes := []rune(baseLines[startY+i])
-		lineRunes := []rune(line)
-		if len(lineRunes) < modalWidth {
-			lineRunes = append(lineRunes, []rune(strings.Repeat(" ", modalWidth-len(lineRunes)))...)
-		}
-		for j := 0; j < modalWidth && startX+j < len(baseRunes) && j < len(lineRunes); j++ {
-			baseRunes[startX+j] = lineRunes[j]
-		}
-		baseLines[startY+i] = string(baseRunes)
-	}
-	return strings.Join(baseLines, "\n")
+	b.WriteString(ansi.RestoreCursorPosition)
+	return b.String()
 }
 
 func previewOverlaySize(lines []string) (int, int) {
