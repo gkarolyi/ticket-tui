@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -107,6 +108,7 @@ var (
 	mutedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	modalStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2).Width(52)
+	ansiPattern   = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 )
 
 const (
@@ -353,26 +355,12 @@ func (m model) View() tea.View {
 
 	header := titleStyle.Render(m.headerText())
 	layout := layoutFor(m.width, m.height)
-	detailWidth, detailHeight := m.detailDimensions()
 
 	listTitle := titleStyle.Render("Queue")
 	listContent := lipgloss.NewStyle().Width(layout.listWidth).Height(layout.listHeight).Render(m.renderList(layout.listWidth, layout.listHeight))
 	list := lipgloss.JoinVertical(lipgloss.Left, listTitle, listContent)
 	detailContent := m.detail.View()
-	overlay := m.activeOverlay()
-	detailTitle := "Ticket"
-	if m.focus == focusPreview {
-		if id := selectedID(m); id != "" {
-			detailTitle = "Preview: " + id
-		} else {
-			detailTitle = "Preview"
-		}
-	}
-	detailTitleStyle := titleStyle
-	if m.focus == focusPreview {
-		detailTitleStyle = selectedStyle
-	}
-	detailSections := []string{detailTitleStyle.Render(detailTitle)}
+	detailSections := []string{titleStyle.Render("Ticket")}
 	if m.detailHeader != "" {
 		detailSections = append(detailSections, m.detailHeader)
 	}
@@ -381,18 +369,20 @@ func (m model) View() tea.View {
 	}
 	detailSections = append(detailSections, detailContent)
 	detailInner := lipgloss.JoinVertical(lipgloss.Left, detailSections...)
-	if overlay != "" {
-		detailInner = overlayBody(detailInner, overlay, detailWidth, detailHeight)
+	if overlay := m.activeOverlay(); overlay != "" {
+		detailInner = overlayBody(detailInner, overlay, layout.detailWidth, layout.detailHeight)
 	}
-	detail := lipgloss.NewStyle().Width(detailWidth).Height(detailHeight).Render(detailInner)
-	body := detail
-	if m.focus != focusPreview {
-		gutter := strings.Repeat(" ", layout.gutterWidth)
-		body = lipgloss.JoinHorizontal(lipgloss.Top, list, gutter, detail)
-		if layout.vertical {
-			body = lipgloss.JoinVertical(lipgloss.Left, list, detail)
-		}
+	detail := lipgloss.NewStyle().Width(layout.detailWidth).Height(layout.detailHeight).Render(detailInner)
+	gutter := strings.Repeat(" ", layout.gutterWidth)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, list, gutter, detail)
+	if layout.vertical {
+		body = lipgloss.JoinVertical(lipgloss.Left, list, detail)
 	}
+	if m.focus == focusPreview {
+		modalWidth, modalHeight := m.previewModalDimensions()
+		body = overlayPreviewBody(stripANSIText(body), stripANSIText(m.renderPreviewModal()), m.width, layout.bodyHeight, modalWidth, modalHeight)
+	}
+
 	footerText := footerFor(m)
 	footerStyle := mutedStyle
 	if m.err != "" {
@@ -503,6 +493,38 @@ func (m model) activeOverlay() string {
 	}
 }
 
+func (m model) renderPreviewModal() string {
+	title := "Preview"
+	if id := selectedID(m); id != "" {
+		title = "Preview: " + id
+	}
+	detailSections := []string{title}
+	if m.detailHeader != "" {
+		detailSections = append(detailSections, m.detailHeader, "")
+	}
+	if body := m.detail.View(); body != "" {
+		detailSections = append(detailSections, body)
+	}
+	detailSections = append(detailSections, "", "esc close   j/k scroll   e edit")
+
+	width, height := m.previewModalDimensions()
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Padding(1, 2).
+		Width(max(1, width-6)).
+		Height(max(1, height-4)).
+		Render(lipgloss.JoinVertical(lipgloss.Left, detailSections...))
+}
+
+func (m model) previewModalDimensions() (int, int) {
+	width := max(40, m.width-20)
+	height := max(10, m.height-10)
+	if width > 90 {
+		width = 90
+	}
+	return width, height
+}
+
 func overlayBody(base string, overlay string, width int, height int) string {
 	base = lipgloss.NewStyle().Width(width).Height(height).Render(base)
 	baseLines := strings.Split(base, "\n")
@@ -515,9 +537,59 @@ func overlayBody(base string, overlay string, width int, height int) string {
 		if start+i >= len(baseLines) {
 			break
 		}
-		baseLines[start+i] = lipgloss.PlaceHorizontal(width, lipgloss.Center, line)
+		baseLine := []rune(baseLines[start+i])
+		overlayLine := []rune(lipgloss.PlaceHorizontal(width, lipgloss.Center, line))
+		for j, ch := range overlayLine {
+			if j >= len(baseLine) {
+				break
+			}
+			if ch != ' ' {
+				baseLine[j] = ch
+			}
+		}
+		baseLines[start+i] = string(baseLine)
 	}
 	return strings.Join(baseLines, "\n")
+}
+
+func overlayPreviewBody(base string, overlay string, width int, height int, modalWidth int, _ int) string {
+	base = lipgloss.NewStyle().Width(width).Height(height).Render(base)
+	baseLines := strings.Split(base, "\n")
+	overlayLines := strings.Split(overlay, "\n")
+	if len(baseLines) == 0 || len(overlayLines) == 0 {
+		return base
+	}
+	startY := max(0, (len(baseLines)-len(overlayLines))/2)
+	startX := max(0, (width-modalWidth)/2)
+	for i, line := range overlayLines {
+		if startY+i >= len(baseLines) {
+			break
+		}
+		baseRunes := []rune(baseLines[startY+i])
+		lineRunes := []rune(line)
+		if len(lineRunes) < modalWidth {
+			lineRunes = append(lineRunes, []rune(strings.Repeat(" ", modalWidth-len(lineRunes)))...)
+		}
+		for j := 0; j < modalWidth && startX+j < len(baseRunes) && j < len(lineRunes); j++ {
+			baseRunes[startX+j] = lineRunes[j]
+		}
+		baseLines[startY+i] = string(baseRunes)
+	}
+	return strings.Join(baseLines, "\n")
+}
+
+func previewOverlaySize(lines []string) (int, int) {
+	width := 0
+	for _, line := range lines {
+		if w := len([]rune(line)); w > width {
+			width = w
+		}
+	}
+	return width, len(lines)
+}
+
+func stripANSIText(value string) string {
+	return ansiPattern.ReplaceAllString(value, "")
 }
 
 func renderHelpModal() string {
@@ -1094,7 +1166,8 @@ func (m *model) resizeDetail() {
 func (m model) detailDimensions() (int, int) {
 	layout := layoutFor(m.width, m.height)
 	if m.focus == focusPreview {
-		return m.width, layout.bodyHeight
+		width, height := m.previewModalDimensions()
+		return width - 4, height - 4
 	}
 	return layout.detailWidth, layout.detailHeight
 }

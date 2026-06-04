@@ -472,7 +472,7 @@ func TestPreviewFocusChangesDetailTitle(t *testing.T) {
 	}
 }
 
-func TestPreviewFocusUsesFullScreenReader(t *testing.T) {
+func TestPreviewFocusUsesCenteredReaderModal(t *testing.T) {
 	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
 	m.width = 120
 	m.height = 30
@@ -485,10 +485,7 @@ func TestPreviewFocusUsesFullScreenReader(t *testing.T) {
 
 	view := stripANSI(m.View().Content)
 
-	if strings.Contains(view, "Queue") {
-		t.Fatalf("preview focus still shows queue instead of full-screen reader:\n%s", view)
-	}
-	for _, want := range []string{"Preview: tic-one", "Status", "Notes", "Selected detail"} {
+	for _, want := range []string{"Queue", "Ticket", "Preview: tic-one", "Status", "Notes", "Selected detail"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("preview view missing %q:\n%s", want, view)
 		}
