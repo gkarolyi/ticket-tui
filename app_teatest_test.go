@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,6 +63,56 @@ func TestTeatestCtrlPOpensCommandPalette(t *testing.T) {
 	if final.width != 100 || final.height != 28 {
 		t.Fatalf("size = %dx%d, want 100x28", final.width, final.height)
 	}
+}
+
+func TestTeatestFilterNarrowsTicketsByDescription(t *testing.T) {
+	tm := newTeatestApp(t, 100, 28)
+	t.Cleanup(func() { _ = tm.Quit() })
+
+	time.Sleep(300 * time.Millisecond)
+	tm.Send(keyMsg("/"))
+	for _, key := range []string{"s", "c", "a", "n", "n"} {
+		tm.Send(keyMsg(key))
+	}
+	tm.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	time.Sleep(300 * time.Millisecond)
+	_ = tm.Quit()
+
+	final := tm.FinalModel(t, teatest.WithFinalTimeout(2*time.Second)).(model)
+	if final.searchFilter != "scann" {
+		t.Fatalf("searchFilter = %q, want scann", final.searchFilter)
+	}
+	assertIDs(t, final.tickets, []string{"tic-work"})
+	view := stripANSI(final.View().Content)
+	if !strings.Contains(view, "metadata grid") {
+		t.Fatalf("filtered view missing matching ticket:\n%s", view)
+	}
+	if strings.Contains(view, "dashboard header") || strings.Contains(view, "blocked by dependency") {
+		t.Fatalf("filtered view still includes non-matching tickets:\n%s", view)
+	}
+}
+
+func TestTeatestEmptyFilterSubmitClearsFilter(t *testing.T) {
+	tm := newTeatestApp(t, 100, 28)
+	t.Cleanup(func() { _ = tm.Quit() })
+
+	time.Sleep(300 * time.Millisecond)
+	tm.Send(keyMsg("/"))
+	for _, key := range []string{"s", "c", "a", "n", "n"} {
+		tm.Send(keyMsg(key))
+	}
+	tm.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	time.Sleep(150 * time.Millisecond)
+	tm.Send(keyMsg("/"))
+	tm.Send(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	time.Sleep(300 * time.Millisecond)
+	_ = tm.Quit()
+
+	final := tm.FinalModel(t, teatest.WithFinalTimeout(2*time.Second)).(model)
+	if final.searchFilter != "" {
+		t.Fatalf("searchFilter = %q, want empty", final.searchFilter)
+	}
+	assertIDs(t, final.tickets, []string{"tic-ready", "tic-work", "tic-block", "tic-done"})
 }
 
 func newTeatestApp(t *testing.T, width int, height int) *teatest.TestModel {

@@ -21,14 +21,15 @@ const (
 var modeNames = []string{"active", "ready", "blocked", "closed"}
 
 type Ticket struct {
-	ID       string
-	Status   string
-	Priority int
-	Title    string
-	Deps     []string
-	Assignee string
-	Tags     []string
-	Path     string
+	ID          string
+	Status      string
+	Priority    int
+	Title       string
+	Description string
+	Deps        []string
+	Assignee    string
+	Tags        []string
+	Path        string
 }
 
 func ParseTicketFile(path string) (Ticket, error) {
@@ -43,6 +44,7 @@ func ParseTicketFile(path string) (Ticket, error) {
 	inFrontmatter := false
 	seenFrontmatter := false
 	frontmatterDone := false
+	bodyLines := []string{}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -86,6 +88,9 @@ func ParseTicketFile(path string) (Ticket, error) {
 		if frontmatterDone && strings.HasPrefix(line, "# ") && ticket.Title == "(untitled)" {
 			ticket.Title = strings.TrimSpace(strings.TrimPrefix(line, "# "))
 		}
+		if frontmatterDone {
+			bodyLines = append(bodyLines, line)
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -94,6 +99,7 @@ func ParseTicketFile(path string) (Ticket, error) {
 	if ticket.ID == "" {
 		ticket.ID = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
+	ticket.Description = strings.TrimSpace(strings.Join(bodyLines, "\n"))
 	return ticket, nil
 }
 
@@ -144,6 +150,39 @@ func FilterTickets(tickets []Ticket, mode Mode) []Ticket {
 	}
 	SortTickets(filtered)
 	return filtered
+}
+
+func FilterTicketSearch(tickets []Ticket, query string) []Ticket {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return tickets
+	}
+	queryParts := strings.Fields(query)
+
+	filtered := make([]Ticket, 0, len(tickets))
+	for _, ticket := range tickets {
+		searchParts := strings.Fields(strings.ToLower(strings.Join([]string{ticket.ID, ticket.Title, ticket.Description}, " ")))
+		if ticketSearchMatches(queryParts, searchParts) {
+			filtered = append(filtered, ticket)
+		}
+	}
+	return filtered
+}
+
+func ticketSearchMatches(queryParts []string, searchParts []string) bool {
+	for _, queryPart := range queryParts {
+		matched := false
+		for _, searchPart := range searchParts {
+			if fuzzyMatch(queryPart, searchPart) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
 }
 
 func SortTickets(tickets []Ticket) {

@@ -91,15 +91,73 @@ func TestCreateCommandUsesSuperCreate(t *testing.T) {
 	assertStrings(t, cmd.args, []string{"super", "create", "New ticket"})
 }
 
-func TestQueryCommandUsesQueryPlugin(t *testing.T) {
-	cmd, err := commandSpec(Config{TKScript: "/usr/local/bin/tk"}, "query", `.status == "open"`)
-	if err != nil {
-		t.Fatalf("commandSpec returned error: %v", err)
+func TestFilterKeyShowsPlainTextFilterModal(t *testing.T) {
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
+	m.width = 80
+	m.height = 24
+
+	updated, _ := m.Update(keyMsg("/"))
+	view := stripANSI(updated.(model).View().Content)
+
+	for _, want := range []string{"Filter Tickets", "search id, title, description"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("filter modal missing %q:\n%s", want, view)
+		}
 	}
-	if cmd.name != "/usr/local/bin/tk" {
-		t.Fatalf("name = %q", cmd.name)
+	if strings.Contains(view, "jq filter") {
+		t.Fatalf("filter modal still mentions jq:\n%s", view)
 	}
-	assertStrings(t, cmd.args, []string{"query", `.status == "open"`})
+}
+
+func TestFilterSubmitFiltersLocalTicketsWithoutRunner(t *testing.T) {
+	called := false
+	runner := func(name string, args ...string) (string, error) {
+		called = true
+		return "", nil
+	}
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, runner)
+	m.width = 100
+	m.height = 30
+	m.allTickets = []Ticket{
+		{ID: "tic-alpha", Title: "Dashboard polish", Status: "open", Priority: 1},
+		{ID: "tic-beta", Title: "Dependency picker", Description: "Choose related tickets", Status: "open", Priority: 2},
+	}
+	m.tickets = m.allTickets
+
+	updated, _ := m.Update(keyMsg("/"))
+	for _, key := range []string{"r", "e", "l"} {
+		updated, _ = updated.(model).Update(keyMsg(key))
+	}
+	updated, _ = updated.(model).Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+
+	if called {
+		t.Fatal("filter submit called runner")
+	}
+	filtered := updated.(model).tickets
+	assertIDs(t, filtered, []string{"tic-beta"})
+	if updated.(model).searchFilter != "rel" {
+		t.Fatalf("searchFilter = %q, want rel", updated.(model).searchFilter)
+	}
+}
+
+func TestEmptyFilterSubmitClearsLocalFilter(t *testing.T) {
+	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
+	m.width = 100
+	m.height = 30
+	m.allTickets = []Ticket{
+		{ID: "tic-alpha", Title: "Dashboard polish", Status: "open", Priority: 1},
+		{ID: "tic-beta", Title: "Dependency picker", Description: "Choose related tickets", Status: "open", Priority: 2},
+	}
+	m.searchFilter = "rel"
+	m.tickets = []Ticket{m.allTickets[1]}
+
+	updated, _ := m.Update(keyMsg("/"))
+	updated, _ = updated.(model).Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+
+	assertIDs(t, updated.(model).tickets, []string{"tic-alpha", "tic-beta"})
+	if updated.(model).searchFilter != "" {
+		t.Fatalf("searchFilter = %q, want empty", updated.(model).searchFilter)
+	}
 }
 
 func TestCreateKeyShowsModal(t *testing.T) {
@@ -179,7 +237,7 @@ func TestCreateModalSubmitsDescriptionWithCreateCommand(t *testing.T) {
 	assertStrings(t, gotArgs, []string{"super", "create", "Title", "-d", "Desc"})
 }
 
-func TestLoadedStartupDoesNotOpenQueryPrompt(t *testing.T) {
+func TestLoadedStartupDoesNotOpenFilterPrompt(t *testing.T) {
 	m := newModel(Config{TKScript: "/usr/local/bin/tk"}, nil)
 	m.width = 120
 	m.height = 30
@@ -193,8 +251,8 @@ func TestLoadedStartupDoesNotOpenQueryPrompt(t *testing.T) {
 	if updated.(model).prompt != promptNone {
 		t.Fatalf("prompt = %v, want promptNone", updated.(model).prompt)
 	}
-	if strings.Contains(view, "Query Tickets") {
-		t.Fatalf("startup view opened query prompt:\n%s", view)
+	if strings.Contains(view, "Filter Tickets") {
+		t.Fatalf("startup view opened filter prompt:\n%s", view)
 	}
 }
 
@@ -1010,7 +1068,7 @@ func TestCommandPaletteKeyShowsSearchableCommands(t *testing.T) {
 	updated, _ := m.Update(tea.KeyPressMsg(tea.Key{Code: 'p', Mod: tea.ModCtrl}))
 	view := updated.(model).View().Content
 
-	for _, text := range []string{"Command Palette", "create ticket", "query tickets", "close selected ticket"} {
+	for _, text := range []string{"Command Palette", "create ticket", "filter tickets", "close selected ticket"} {
 		if !strings.Contains(view, text) {
 			t.Fatalf("palette view missing %q:\n%s", text, view)
 		}

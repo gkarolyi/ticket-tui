@@ -18,7 +18,7 @@ tk tui
 - editing tickets with `tk edit`
 - starting, closing, and reopening tickets
 - adding dependencies from the TUI
-- querying tickets with `tk query`
+- filtering tickets by id, title, or description
 
 The UI reads ticket files directly and shells out to the existing `ticket` CLI for mutations, so the source of truth stays in your installed `ticket` workflow.
 
@@ -81,7 +81,7 @@ Main screen:
 - `d` — add dependencies
 - `e` — edit selected ticket
 - `s`, `c`, `r` — start, close, reopen
-- `/` — query tickets
+- `/` — filter tickets
 - `ctrl+p` — command palette
 - `R` — refresh
 - `?` — help

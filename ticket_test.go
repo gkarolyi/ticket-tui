@@ -110,6 +110,36 @@ func TestFilterTicketsActiveShowsClosedAfterActiveTickets(t *testing.T) {
 	assertIDs(t, active, []string{"a-0001", "a-0002", "a-0003", "a-0004"})
 }
 
+func TestFilterTicketSearchMatchesIDTitleAndDescription(t *testing.T) {
+	tickets := []Ticket{
+		{ID: "alpha-1", Title: "Add dashboard header", Description: "Improve the top summary"},
+		{ID: "beta-2", Title: "Create dependency modal", Description: "Pick related tickets"},
+		{ID: "gamma-3", Title: "Markdown preview", Description: "Render long ticket descriptions"},
+	}
+
+	assertIDs(t, FilterTicketSearch(tickets, "b2"), []string{"beta-2"})
+	assertIDs(t, FilterTicketSearch(tickets, "dash"), []string{"alpha-1"})
+	assertIDs(t, FilterTicketSearch(tickets, "long desc"), []string{"gamma-3"})
+}
+
+func TestFilterTicketSearchDoesNotMatchScatteredLettersAcrossFullBody(t *testing.T) {
+	tickets := []Ticket{
+		{ID: "tic-ready", Title: "dashboard header", Description: "Design a clearer dashboard-first UX for ticket-tui. Acceptance header counts visible queue remains readable"},
+		{ID: "tic-work", Title: "metadata grid", Description: "Keep metadata compact and scannable"},
+	}
+
+	assertIDs(t, FilterTicketSearch(tickets, "scann"), []string{"tic-work"})
+}
+
+func TestFilterTicketSearchEmptyQueryReturnsTickets(t *testing.T) {
+	tickets := []Ticket{
+		{ID: "tic-alpha", Title: "Add dashboard header"},
+		{ID: "tic-beta", Title: "Create dependency modal"},
+	}
+
+	assertIDs(t, FilterTicketSearch(tickets, "  "), []string{"tic-alpha", "tic-beta"})
+}
+
 func assertStrings(t *testing.T, got, want []string) {
 	t.Helper()
 	if len(got) != len(want) {

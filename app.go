@@ -38,6 +38,7 @@ type model struct {
 	focus        focusArea
 	allTickets   []Ticket
 	tickets      []Ticket
+	searchFilter string
 	selected     int
 	mode         Mode
 	detail       viewport.Model
@@ -48,7 +49,6 @@ type model struct {
 	input        textinput.Model
 	createTitle  string
 	createStep   int
-	queryShown   bool
 	helpShown    bool
 	palette      paletteState
 	depPicker    dependencyPickerState
@@ -83,7 +83,7 @@ type promptKind int
 const (
 	promptNone promptKind = iota
 	promptCreate
-	promptQuery
+	promptFilter
 )
 
 const (
@@ -209,15 +209,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.resizeDetail()
-		if selectedID(m) != "" && m.prompt == promptNone && !m.queryShown && !m.helpShown && !m.palette.shown && !m.depPicker.shown {
+		if selectedID(m) != "" && m.prompt == promptNone && !m.helpShown && !m.palette.shown && !m.depPicker.shown {
 			return m, m.loadDetailCmd()
 		}
 		return m, nil
 	case loadedMsg:
 		m.allTickets = msg.tickets
-		m.tickets = FilterTickets(m.allTickets, m.mode)
+		m.tickets = m.filteredTickets()
 		m.tickets = m.orderedTickets()
-		m.queryShown = false
 		if m.selected >= len(m.tickets) {
 			m.selected = len(m.tickets) - 1
 		}
@@ -241,14 +240,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errorMsg:
 		m.err = msg.err.Error()
 		return m, nil
-	case queryMsg:
-		m.detailHeader = ""
-		m.resizeDetail()
-		m.detail.SetContent(msg.output)
-		m.status = "Query: " + msg.filter
-		m.err = ""
-		m.queryShown = true
-		return m, nil
 	case refreshTickMsg:
 		return m, tea.Batch(m.loadCmd(), refreshTickCmd())
 	case tea.KeyPressMsg:
@@ -267,11 +258,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.helpShown = false
 				m.status = "Closed help"
 				return m, nil
-			}
-			if m.queryShown {
-				m.queryShown = false
-				m.status = "Returned to ticket detail"
-				return m, m.loadDetailCmd()
 			}
 			if m.focus == focusPreview {
 				m.focus = focusTickets
@@ -326,9 +312,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Create ticket title:"
 			return m, nil
 		case "/":
-			m.prompt = promptQuery
-			m.input = newTextInput(`.status == "open"`)
-			m.status = "Query filter:"
+			m.prompt = promptFilter
+			m.input = newTextInput("Search tickets")
+			m.status = "Filter tickets:"
 			return m, nil
 		case "?":
 			m.helpShown = true
@@ -588,7 +574,7 @@ func renderHelpModal() string {
 		"k/up        move selection up",
 		"tab         jump to next section",
 		"n           create ticket",
-		"/           query tickets",
+		"/           filter tickets",
 		"d           add dependencies",
 		"e           edit selected ticket",
 		"s           start selected ticket",
@@ -606,7 +592,7 @@ func renderHelpModal() string {
 func paletteCommands() []paletteCommand {
 	return []paletteCommand{
 		{name: "create ticket", key: "n"},
-		{name: "query tickets", key: "/"},
+		{name: "filter tickets", key: "/"},
 		{name: "add dependencies", key: "d"},
 		{name: "edit selected ticket", key: "e"},
 		{name: "start selected ticket", key: "s"},
@@ -959,6 +945,10 @@ func (m model) orderedTickets() []Ticket {
 	return ordered
 }
 
+func (m model) filteredTickets() []Ticket {
+	return FilterTicketSearch(FilterTickets(m.allTickets, m.mode), m.searchFilter)
+}
+
 func (m model) currentSectionName() string {
 	id := selectedID(m)
 	for _, section := range m.visibleSections() {
@@ -1089,11 +1079,21 @@ func (m model) updatePrompt(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		m.prompt = promptNone
 		m.input = newTextInput("")
-		if input == "" {
-			m.status = "Cancelled"
-			return m, nil
+		m.searchFilter = input
+		m.tickets = m.filteredTickets()
+		m.tickets = m.orderedTickets()
+		if m.selected >= len(m.tickets) {
+			m.selected = len(m.tickets) - 1
 		}
-		return m, m.queryCmd(input)
+		if m.selected < 0 {
+			m.selected = 0
+		}
+		if input == "" {
+			m.status = fmt.Sprintf("%d tickets", len(m.tickets))
+		} else {
+			m.status = fmt.Sprintf("%d tickets matching %q", len(m.tickets), input)
+		}
+		return m, m.loadDetailCmd()
 	default:
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
@@ -1122,12 +1122,12 @@ func (m model) renderPromptModal() string {
 		}
 		return modalStyle.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 	}
-	if m.prompt == promptQuery {
+	if m.prompt == promptFilter {
 		return modalStyle.Render(lipgloss.JoinVertical(lipgloss.Left,
-			titleStyle.Render("Query Tickets"),
-			"jq filter",
+			titleStyle.Render("Filter Tickets"),
+			"search id, title, description",
 			m.input.View(),
-			mutedStyle.Render("enter run query  esc cancel"),
+			mutedStyle.Render("enter filter  empty clears  esc cancel"),
 		))
 	}
 	return ""
@@ -1201,7 +1201,7 @@ func (m model) loadCmd() tea.Cmd {
 		filtered := FilterTickets(tickets, m.mode)
 		loadedModel := m
 		loadedModel.allTickets = tickets
-		loadedModel.tickets = filtered
+		loadedModel.tickets = FilterTicketSearch(filtered, m.searchFilter)
 		ordered := loadedModel.orderedTickets()
 		if len(ordered) > 0 {
 			selected := loadedModel.selected
@@ -1296,25 +1296,6 @@ func (m model) createCmd(title string, description string) tea.Cmd {
 		}
 		return statusMsg{text: "Created " + strings.TrimSpace(output)}
 	}
-}
-
-func (m model) queryCmd(filter string) tea.Cmd {
-	return func() tea.Msg {
-		spec, err := commandSpec(m.config, "query", filter)
-		if err != nil {
-			return errorMsg{err: err}
-		}
-		output, err := m.runner(spec.name, spec.args...)
-		if err != nil {
-			return errorMsg{err: fmt.Errorf("query failed: %s %w", output, err)}
-		}
-		return queryMsg{filter: filter, output: output}
-	}
-}
-
-type queryMsg struct {
-	filter string
-	output string
 }
 
 func (m model) editCmd() tea.Cmd {
